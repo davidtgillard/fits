@@ -26,6 +26,7 @@ Invoke `fits` with a subcommand. If you omit the subcommand or pass an unknown o
 
 ```text
 Usage:
+  fits init
   fits validate
   fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
   fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
@@ -38,6 +39,14 @@ Usage:
   fits register rename <OLD> <NEW>   (deprecated)
   fits update [--check]
   fits version
+```
+
+### `fits init`
+
+Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty prefixes and link types), `.fits/tombstone_cache.json`, `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/latticedb/`, and `relations/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `relations/links.jsonc` already exists, the command prints an error and exits without changing files.
+
+```sh
+fits init
 ```
 
 ### `fits validate`

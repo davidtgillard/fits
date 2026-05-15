@@ -51,6 +51,23 @@ pub fn putTombstone(
     try save(allocator, io, repo_root, &cache);
 }
 
+/// Writes an empty tombstone cache atomically to `{repo_root}/.fits/tombstone_cache.json`.
+///
+/// Parameters:
+/// - `allocator`: Temporary allocations for paths and serialized JSON.
+/// - `io`: Process I/O.
+/// - `repo_root`: Repository root whose `.fits/` directory already exists or will be created by the writer.
+///
+/// Returns: `void` on success; propagated I/O errors from atomic create/rename.
+pub fn writeEmptyInitial(
+    allocator: std.mem.Allocator,
+    io: Io,
+    repo_root: []const u8,
+) !void {
+    const empty: CacheState = .{ .entries = .empty };
+    try save(allocator, io, repo_root, &empty);
+}
+
 /// Merges all tombstones from `reg` into the cache file.
 pub fn syncFromRegistry(allocator: std.mem.Allocator, io: Io, repo_root: []const u8, reg: *const fits_registry.Registry) !void {
     for (reg.prefixes.items) |entry| {

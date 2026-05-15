@@ -19,6 +19,7 @@ const register_mod = @import("app/register.zig");
 const remove_object_mod = @import("app/remove_object.zig");
 const update_mod = @import("app/update.zig");
 const graph_link_endpoints_mod = @import("app/graph_link_endpoints_validator.zig");
+const init_repo_mod = @import("app/init_repo.zig");
 
 /// Program entry: parses argv, runs a subcommand, prints usage on unknown input.
 ///
@@ -58,6 +59,15 @@ pub fn main(init: std.process.Init) !void {
 
     if (std.mem.eql(u8, cmd, "validate")) {
         try runValidate(allocator, io, init.environ_map);
+        return;
+    }
+
+    if (std.mem.eql(u8, cmd, "init")) {
+        if (args.next() != null) {
+            printUsage();
+            return error.InvalidArgv;
+        }
+        try init_repo_mod.run(allocator, io, init_repo_mod.default_repo_root);
         return;
     }
 
@@ -194,6 +204,7 @@ fn runUpdate(
 fn printUsage() void {
     std.debug.print(
         \\Usage:
+        \\  fits init
         \\  fits validate
         \\  fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
         \\  fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
@@ -498,6 +509,7 @@ test {
     _ = @import("app/new_link.zig");
     _ = @import("app/new_object.zig");
     _ = @import("app/register.zig");
+    _ = @import("app/init_repo.zig");
     _ = @import("test/fits_registry_functional.zig");
     _ = @import("test/new_link_functional.zig");
     _ = @import("test/new_object_functional.zig");
@@ -506,6 +518,7 @@ test {
     _ = @import("test/remove_object_functional.zig");
     _ = @import("test/tombstone_cache_functional.zig");
     _ = @import("test/update_functional.zig");
+    _ = @import("test/init_functional.zig");
     _ = @import("adapters/git/removal.zig");
     _ = @import("domain/instance_id.zig");
     _ = @import("adapters/cache/tombstone_cache.zig");
