@@ -1,6 +1,6 @@
 //! Machine-owned allocation state for FITS object IDs under `.fits/`.
-//! Humans should not edit these files; the CLI owns create/update semantics and
-//! enforces monotonic numeric suffixes per object prefix so deleted numbers are never reused.
+//! Humans should not edit these files; the CLI owns create/update semantics,
+//! tombstones deleted numeric suffixes (with optional VCS refs), and monotonic `next` counters.
 
 const std = @import("std");
 
@@ -16,7 +16,27 @@ pub const registry_file_name: []const u8 = "registry.json";
 /// Current on-disk registry schema version written by [`Registry.save`].
 pub const registry_version: u32 = 2;
 
-/// JSON envelope written by [`Registry.save`]. `kind` distinguishes FITS files from stray JSON.
+/// Git SHA-1 object name length in hex characters.
+pub const git_commit_hex_len: usize = 40;
+
+/// VCS-specific optional fields stored on a tombstone when recording removal.
+pub const TombstoneRefs = struct {
+    git_commit: ?[]const u8 = null,
+};
+
+/// A tombstoned numeric suffix for a prefix (must never be reissued).
+pub const TombstoneEntry = struct {
+    n: u64,
+    git_commit: ?[]const u8 = null,
+};
+
+/// JSON tombstone row (v2).
+const TombstoneJsonV2 = struct {
+    n: u64,
+    git_commit: ?[]const u8 = null,
+};
+
+/// JSON envelope written by [`Registry.save`].
 const RegistryJsonV2 = struct {
     version: u32,
     kind: []const u8,
@@ -26,8 +46,8 @@ const RegistryJsonV2 = struct {
 /// JSON prefix entry (v2).
 const PrefixJsonV2 = struct {
     obj_prefix: []const u8,
-    /// Next numeric suffix to assign for this prefix (natural numbers, starting at 1).
     next: u64,
+    tombstones: []TombstoneJsonV2 = &.{},
 };
 
 /// v1 on-disk shape (legacy `slug` field).
@@ -42,42 +62,32 @@ const PrefixJsonV1 = struct {
     next: u64,
 };
 
-/// In-memory registry: per-prefix monotonic counter. `next` is the next suffix to hand out.
+/// In-memory registry: per-prefix monotonic counter and tombstone list.
 pub const Registry = struct {
-    /// Allocator for the registry's internal storage.
     allocator: std.mem.Allocator,
-    /// List of object prefixes and their next numeric suffix.
     prefixes: std.ArrayList(PrefixEntry) = .empty,
 
     /// Single prefix entry.
     pub const PrefixEntry = struct {
         obj_prefix: []const u8,
         next: u64,
+        tombstones: std.ArrayList(TombstoneEntry) = .empty,
     };
 
-    /// Frees duplicated prefix strings and prefix list storage.
-    ///
-    /// Parameters:
-    /// - `self`: Registry whose `prefixes` were populated by this module (owned `obj_prefix` slices).
-    ///
-    /// Returns: nothing.
+    /// Frees duplicated strings and nested tombstone storage.
     pub fn deinit(self: *Registry) void {
-        for (self.prefixes.items) |entry| {
+        for (self.prefixes.items) |*entry| {
             self.allocator.free(entry.obj_prefix);
+            for (entry.tombstones.items) |ts| {
+                if (ts.git_commit) |c| self.allocator.free(c);
+            }
+            entry.tombstones.deinit(self.allocator);
         }
         self.prefixes.deinit(self.allocator);
         self.* = undefined;
     }
 
-    /// Loads registry from `repo_root`/.fits/registry.json`, or returns an empty registry if missing.
-    ///
-    /// Parameters:
-    /// - `allocator`: Used for path buffers, parse output, and owned `obj_prefix` duplicates.
-    /// - `io`: Process I/O implementation (used for all file operations).
-    /// - `repo_root`: Repository root (relative or absolute path segment).
-    ///
-    /// Returns: a [`Registry`] on success. Caller must call [`deinit`].
-    /// On failure: JSON parse errors, malformed `kind`/`version`, or I/O errors from read.
+    /// Loads registry from `repo_root`/.fits/registry.json`, or empty if missing.
     pub fn load(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !Registry {
         const path = try joinRegistryPath(allocator, repo_root);
         defer allocator.free(path);
@@ -114,7 +124,7 @@ pub const Registry = struct {
                 });
                 defer parsed_v1.deinit();
                 for (parsed_v1.value.prefixes) |pj| {
-                    try mergePrefix(&reg, pj.slug, pj.next);
+                    try mergePrefix(&reg, pj.slug, pj.next, &.{});
                 }
             },
             2 => {
@@ -123,25 +133,20 @@ pub const Registry = struct {
                 });
                 defer parsed_v2.deinit();
                 for (parsed_v2.value.prefixes) |pj| {
-                    try mergePrefix(&reg, pj.obj_prefix, pj.next);
+                    try mergePrefix(&reg, pj.obj_prefix, pj.next, pj.tombstones);
                 }
             },
             else => return error.UnsupportedRegistryVersion,
         }
 
+        for (reg.prefixes.items) |*entry| {
+            sortTombstones(entry.tombstones.items);
+        }
         sortPrefixes(reg.prefixes.items);
         return reg;
     }
 
-    /// Writes registry to disk atomically (temp file + rename) under `repo_root`/.fits/.
-    ///
-    /// Parameters:
-    /// - `self`: Registry state to persist (sorted by prefix for stable output).
-    /// - `io`: Process I/O implementation (used for all file operations).
-    /// - `repo_root`: Repository root used when joining `.fits/registry.json`.
-    ///
-    /// Returns: nothing on success.
-    /// On failure: I/O errors from directory creation, write, or rename.
+    /// Writes registry atomically under `repo_root`/.fits/.
     pub fn save(self: *Registry, io: Io, repo_root: []const u8) !void {
         const cwd = Dir.cwd();
         const fits_path = try std.fs.path.join(self.allocator, &.{ repo_root, fits_dir_name });
@@ -158,8 +163,27 @@ pub const Registry = struct {
 
         var prefixes_json = try self.allocator.alloc(PrefixJsonV2, self.prefixes.items.len);
         defer self.allocator.free(prefixes_json);
+
+        var tombstone_bufs: std.ArrayList([]TombstoneJsonV2) = .empty;
+        defer {
+            for (tombstone_bufs.items) |buf| self.allocator.free(buf);
+            tombstone_bufs.deinit(self.allocator);
+        }
+
         for (self.prefixes.items, 0..) |e, i| {
-            prefixes_json[i] = .{ .obj_prefix = e.obj_prefix, .next = e.next };
+            const ts_json = try self.allocator.alloc(TombstoneJsonV2, e.tombstones.items.len);
+            try tombstone_bufs.append(self.allocator, ts_json);
+            for (e.tombstones.items, 0..) |ts, j| {
+                ts_json[j] = .{
+                    .n = ts.n,
+                    .git_commit = ts.git_commit,
+                };
+            }
+            prefixes_json[i] = .{
+                .obj_prefix = e.obj_prefix,
+                .next = e.next,
+                .tombstones = ts_json,
+            };
         }
 
         const envelope = RegistryJsonV2{
@@ -181,37 +205,39 @@ pub const Registry = struct {
         try cwd.rename(tmp_path, cwd, final_path, io);
     }
 
-    /// Returns whether `obj_prefix` is registered.
-    ///
-    /// Parameters:
-    /// - `self`: Loaded registry.
-    /// - `obj_prefix`: Object type prefix (e.g. `REQ`).
-    ///
-    /// Returns: `true` if a row exists for `obj_prefix`.
     pub fn hasObjPrefix(self: *const Registry, obj_prefix: []const u8) bool {
         return findPrefixIndex(self.prefixes.items, obj_prefix) != null;
     }
 
-    /// Returns the `next` counter for `obj_prefix`, or `null` if not registered.
-    ///
-    /// Parameters:
-    /// - `self`: Loaded registry.
-    /// - `obj_prefix`: Object type prefix.
-    ///
-    /// Returns: the next numeric suffix that would be assigned, or `null` if unknown.
     pub fn nextForObjPrefix(self: *const Registry, obj_prefix: []const u8) ?u64 {
         const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return null;
         return self.prefixes.items[idx].next;
     }
 
-    /// Registers a new object type prefix with `next = 1`.
-    ///
-    /// Parameters:
-    /// - `self`: Registry to mutate.
-    /// - `obj_prefix`: Prefix such as `REQ` (must pass [`validateObjPrefix`] first).
-    ///
-    /// Returns: nothing on success.
-    /// On failure: [`error.DuplicateObjPrefix`] if already registered, or [`error.OutOfMemory`].
+    /// Returns whether numeric suffix `n` is tombstoned for `obj_prefix`.
+    pub fn isTombstoned(self: *const Registry, obj_prefix: []const u8, n: u64) bool {
+        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return false;
+        return findTombstoneIndex(self.prefixes.items[idx].tombstones.items, n) != null;
+    }
+
+    /// Records a tombstone for issued suffix `n` with optional VCS refs.
+    pub fn tombstoneNumeric(self: *Registry, obj_prefix: []const u8, n: u64, refs: TombstoneRefs) !void {
+        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return error.UnknownObjPrefix;
+        if (findTombstoneIndex(self.prefixes.items[idx].tombstones.items, n) != null) return error.AlreadyTombstoned;
+
+        var git_copy: ?[]const u8 = null;
+        if (refs.git_commit) |c| {
+            try validateGitCommit(c);
+            git_copy = try self.allocator.dupe(u8, c);
+        }
+
+        try self.prefixes.items[idx].tombstones.append(self.allocator, .{
+            .n = n,
+            .git_commit = git_copy,
+        });
+        sortTombstones(self.prefixes.items[idx].tombstones.items);
+    }
+
     pub fn registerNewPrefix(self: *Registry, obj_prefix: []const u8) !void {
         if (findPrefixIndex(self.prefixes.items, obj_prefix) != null) return error.DuplicateObjPrefix;
         const copy = try self.allocator.dupe(u8, obj_prefix);
@@ -219,15 +245,6 @@ pub const Registry = struct {
         try self.prefixes.append(self.allocator, .{ .obj_prefix = copy, .next = 1 });
     }
 
-    /// Renames an existing object type prefix row, preserving `next`.
-    ///
-    /// Parameters:
-    /// - `self`: Registry to mutate.
-    /// - `old_prefix`: Existing prefix name.
-    /// - `new_prefix`: New prefix name (must pass [`validateObjPrefix`]).
-    ///
-    /// Returns: nothing on success.
-    /// On failure: [`error.UnknownObjPrefix`], [`error.DuplicateObjPrefix`], or [`error.OutOfMemory`].
     pub fn renamePrefix(self: *Registry, old_prefix: []const u8, new_prefix: []const u8) !void {
         const idx = findPrefixIndex(self.prefixes.items, old_prefix) orelse return error.UnknownObjPrefix;
         if (std.mem.eql(u8, old_prefix, new_prefix)) return;
@@ -241,28 +258,28 @@ pub const Registry = struct {
         self.allocator.free(old_copy);
     }
 
-    /// Returns the next numeric suffix for `obj_prefix` and advances the counter.
-    ///
-    /// Parameters:
-    /// - `self`: Registry to mutate.
-    /// - `obj_prefix`: Prefix such as `REQ` (must be registered and pass [`validateObjPrefix`]).
-    ///
-    /// Returns: the numeric part for the new object (e.g. `3` for `REQ-3`). Caller formats `{obj_prefix}-{n}`.
-    /// On failure: [`error.UnknownObjPrefix`] if not registered.
+    /// Returns the next numeric suffix and advances `next`, skipping tombstoned values.
     pub fn allocateNextNumeric(self: *Registry, obj_prefix: []const u8) !u64 {
         const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return error.UnknownObjPrefix;
-        const n = self.prefixes.items[idx].next;
-        self.prefixes.items[idx].next +|= 1;
+        var n = self.prefixes.items[idx].next;
+        while (findTombstoneIndex(self.prefixes.items[idx].tombstones.items, n) != null) {
+            n +%= 1;
+        }
+        self.prefixes.items[idx].next = n + 1;
         return n;
+    }
+
+    /// Collects registered prefix strings (borrowed from registry storage).
+    pub fn objPrefixSlice(self: *const Registry, allocator: std.mem.Allocator) ![]const []const u8 {
+        const out = try allocator.alloc([]const u8, self.prefixes.items.len);
+        for (self.prefixes.items, 0..) |e, i| {
+            out[i] = e.obj_prefix;
+        }
+        return out;
     }
 };
 
-/// Validates an object type prefix: starts with ASCII letter, then letters, digits, or underscore.
-///
-/// Parameters:
-/// - `obj_prefix`: Candidate prefix from argv (e.g. `REQ`).
-///
-/// Returns: nothing on success, or [`error.InvalidObjPrefix`] if the pattern does not match.
+/// Validates an object type prefix.
 pub fn validateObjPrefix(obj_prefix: []const u8) error{InvalidObjPrefix}!void {
     if (obj_prefix.len == 0) return error.InvalidObjPrefix;
     const c0 = obj_prefix[0];
@@ -273,17 +290,64 @@ pub fn validateObjPrefix(obj_prefix: []const u8) error{InvalidObjPrefix}!void {
     }
 }
 
-fn mergePrefix(reg: *Registry, obj_prefix: []const u8, next: u64) !void {
+/// Validates a git commit object name (40 lowercase hex digits).
+pub fn validateGitCommit(commit: []const u8) error{InvalidGitCommit}!void {
+    if (commit.len != git_commit_hex_len) return error.InvalidGitCommit;
+    for (commit) |c| {
+        if (!std.ascii.isHex(c)) return error.InvalidGitCommit;
+    }
+}
+
+fn mergePrefix(reg: *Registry, obj_prefix: []const u8, next: u64, tombstones_json: []const TombstoneJsonV2) !void {
     const copy = try reg.allocator.dupe(u8, obj_prefix);
     errdefer reg.allocator.free(copy);
 
-    if (findPrefixIndex(reg.prefixes.items, copy)) |idx| {
-        const cur = &reg.prefixes.items[idx];
-        cur.next = @max(cur.next, next);
-        reg.allocator.free(copy);
-    } else {
+    const idx = findPrefixIndex(reg.prefixes.items, copy);
+    const entry = if (idx) |i|
+        &reg.prefixes.items[i]
+    else blk: {
         try reg.prefixes.append(reg.allocator, .{ .obj_prefix = copy, .next = next });
+        break :blk &reg.prefixes.items[reg.prefixes.items.len - 1];
+    };
+
+    if (idx != null) {
+        entry.next = @max(entry.next, next);
+        reg.allocator.free(copy);
     }
+
+    for (tombstones_json) |tj| {
+        if (tj.git_commit) |c| try validateGitCommit(c);
+        const existing = findTombstoneIndex(entry.tombstones.items, tj.n);
+        if (existing) |ti| {
+            const cur = &entry.tombstones.items[ti];
+            const incoming_better = tombstoneRicherThan(cur.*, tj);
+            if (!incoming_better) continue;
+            if (cur.git_commit) |old| reg.allocator.free(old);
+            cur.git_commit = if (tj.git_commit) |nc| try reg.allocator.dupe(u8, nc) else null;
+        } else {
+            const gc = if (tj.git_commit) |nc| try reg.allocator.dupe(u8, nc) else null;
+            try entry.tombstones.append(reg.allocator, .{ .n = tj.n, .git_commit = gc });
+        }
+    }
+    sortTombstones(entry.tombstones.items);
+}
+
+fn tombstoneRicherThan(cur: TombstoneEntry, incoming: TombstoneJsonV2) bool {
+    const cur_has = cur.git_commit != null;
+    const inc_has = incoming.git_commit != null;
+    if (inc_has and !cur_has) return true;
+    if (inc_has and cur_has) {
+        return std.mem.order(u8, incoming.git_commit.?, cur.git_commit.?) == .gt;
+    }
+    return false;
+}
+
+fn sortTombstones(items: []TombstoneEntry) void {
+    std.mem.sortUnstable(TombstoneEntry, items, {}, struct {
+        fn less(_: void, a: TombstoneEntry, b: TombstoneEntry) bool {
+            return a.n < b.n;
+        }
+    }.less);
 }
 
 fn sortPrefixes(items: []Registry.PrefixEntry) void {
@@ -294,13 +358,13 @@ fn sortPrefixes(items: []Registry.PrefixEntry) void {
     }.less);
 }
 
-/// Joins `repo_root/.fits/registry.json` using the host path separator.
-///
-/// Parameters:
-/// - `allocator`: Used for the returned path buffer.
-/// - `repo_root`: Repository root segment.
-///
-/// Returns: an owned path string. Caller must free with `allocator`.
+fn findTombstoneIndex(items: []const TombstoneEntry, n: u64) ?usize {
+    for (items, 0..) |e, i| {
+        if (e.n == n) return i;
+    }
+    return null;
+}
+
 fn joinRegistryPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]const u8 {
     return std.fs.path.join(allocator, &.{ repo_root, fits_dir_name, registry_file_name });
 }
@@ -330,8 +394,6 @@ fn findPrefixIndex(items: []const Registry.PrefixEntry, obj_prefix: []const u8) 
     return null;
 }
 
-// Functional tests (temp dirs, disk I/O) live in `src/test/fits_registry_functional.zig`.
-
 test "allocate monotonic per prefix" {
     const alloc = std.testing.allocator;
     var reg: Registry = .{ .allocator = alloc };
@@ -344,6 +406,34 @@ test "allocate monotonic per prefix" {
     try std.testing.expectEqual(@as(u64, 2), try reg.allocateNextNumeric("REQ"));
     try std.testing.expectEqual(@as(u64, 1), try reg.allocateNextNumeric("BUG"));
     try std.testing.expectEqual(@as(u64, 3), try reg.allocateNextNumeric("REQ"));
+}
+
+test "allocate skips tombstoned suffix" {
+    const alloc = std.testing.allocator;
+    var reg: Registry = .{ .allocator = alloc };
+    defer reg.deinit();
+
+    try reg.registerNewPrefix("REQ");
+    _ = try reg.allocateNextNumeric("REQ");
+    reg.prefixes.items[0].next = 2;
+    try reg.tombstoneNumeric("REQ", 2, .{});
+    try std.testing.expectEqual(@as(u64, 3), try reg.allocateNextNumeric("REQ"));
+}
+
+test "tombstone duplicate" {
+    const alloc = std.testing.allocator;
+    var reg: Registry = .{ .allocator = alloc };
+    defer reg.deinit();
+
+    try reg.registerNewPrefix("REQ");
+    try reg.tombstoneNumeric("REQ", 1, .{});
+    try std.testing.expectError(error.AlreadyTombstoned, reg.tombstoneNumeric("REQ", 1, .{}));
+}
+
+test "validateGitCommit" {
+    try validateGitCommit("a1b2c3d4e5f6789012345678901234567890abcd");
+    try std.testing.expectError(error.InvalidGitCommit, validateGitCommit("short"));
+    try std.testing.expectError(error.InvalidGitCommit, validateGitCommit("g1b2c3d4e5f6789012345678901234567890abcd"));
 }
 
 test "allocate requires registered prefix" {

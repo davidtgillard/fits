@@ -28,6 +28,7 @@ Invoke `fits` with a subcommand. If you omit the subcommand or pass an unknown o
 Usage:
   fits validate
   fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
+  fits rm <OBJ_NAME>
   fits register new <OBJ_PREFIX>
   fits register list
   fits register rename <OLD_OBJ_PREFIX> <NEW_OBJ_PREFIX>
@@ -86,6 +87,31 @@ fits register new REQ
 fits new REQ
 fits new REQ --markdown
 fits new REQ --markdown -- User login flow
+```
+
+### `fits rm`
+
+Removes a FITS object instance by canonical id `{OBJ_PREFIX}-{n}` (e.g. `REQ-3`). All matching paths under `objects/` with that numeric suffix are removed (directories, markdown files, or titled variants).
+
+The numeric id is **tombstoned** in `.fits/registry.json` so it cannot be reissued. Tombstones use VCS-specific reference fields when removal is recorded in version control:
+
+- **`git_commit`**: full git object name of the removal commit when the repository root is a git repo and the paths were versioned.
+
+A mirror of tombstones is kept in `.fits/tombstone_cache.json` for fast local lookup.
+
+When the repo root is a git repository (has `.fits/../.git` at the repo root), `fits rm` runs `git rm` and creates a commit with message `fits rm: {OBJ_NAME}`. Without git at the repo root, removal still tombstones the id but omits `git_commit`.
+
+```sh
+fits register new REQ
+fits new REQ
+fits rm REQ-1
+fits new REQ          # creates REQ-2, not REQ-1
+```
+
+To inspect removal history in git:
+
+```sh
+git show <git_commit from .fits/registry.json>
 ```
 
 ## Exit status

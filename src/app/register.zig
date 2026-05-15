@@ -3,6 +3,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
+const tombstone_cache = @import("../adapters/cache/tombstone_cache.zig");
 const new_object = @import("new_object.zig");
 
 /// Default repository root when the CLI is run from the project tree.
@@ -104,6 +105,7 @@ pub fn runRename(
     try reg.renamePrefix(old_prefix, new_prefix);
     try renameManagedInstances(allocator, io, repo_root, objects_rel, old_prefix, new_prefix, old_next);
     try reg.save(io, repo_root);
+    try tombstone_cache.syncFromRegistry(allocator, io, repo_root, &reg);
 
     if (!builtin.is_test) std.debug.print("Renamed object type {s} -> {s}\n", .{ old_prefix, new_prefix });
 }

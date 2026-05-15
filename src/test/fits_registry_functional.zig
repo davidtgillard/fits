@@ -65,3 +65,41 @@ test "save and load roundtrip writes v2 obj_prefix" {
     try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, contents, "\"version\": 2") != null);
 }
+
+test "tombstone with git_commit roundtrip" {
+    const alloc = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(std.testing.io, "repo");
+
+    const repo_abs_z = try tmp.dir.realPathFileAlloc(std.testing.io, "repo", alloc);
+    defer alloc.free(repo_abs_z);
+    const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
+
+    const sha = "a1b2c3d4e5f6789012345678901234567890abcd";
+
+    {
+        var reg: Registry = .{ .allocator = alloc };
+        defer reg.deinit();
+        try reg.registerNewPrefix("REQ");
+        try reg.tombstoneNumeric("REQ", 1, .{ .git_commit = sha });
+        try reg.tombstoneNumeric("REQ", 2, .{});
+        try reg.save(std.testing.io, repo_abs);
+    }
+
+    var reg2 = try Registry.load(alloc, std.testing.io, repo_abs);
+    defer reg2.deinit();
+    try std.testing.expect(reg2.isTombstoned("REQ", 1));
+    try std.testing.expect(reg2.isTombstoned("REQ", 2));
+    const ts1 = reg2.prefixes.items[0].tombstones.items[0];
+    try std.testing.expectEqualStrings(sha, ts1.git_commit.?);
+    try std.testing.expectEqual(@as(?[]const u8, null), reg2.prefixes.items[0].tombstones.items[1].git_commit);
+
+    const reg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "registry.json" });
+    defer alloc.free(reg_sub);
+    const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
+    defer alloc.free(contents);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"git_commit\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"tombstones\"") != null);
+}

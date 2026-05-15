@@ -10,6 +10,7 @@ const use_case_mod = @import("app/validate_use_case.zig");
 const report_mod = @import("output/report.zig");
 const new_object_mod = @import("app/new_object.zig");
 const register_mod = @import("app/register.zig");
+const remove_object_mod = @import("app/remove_object.zig");
 
 /// Program entry: parses argv, runs a subcommand, prints usage on unknown input.
 ///
@@ -42,6 +43,11 @@ pub fn main(init: std.process.Init) !void {
 
     if (std.mem.eql(u8, cmd, "register")) {
         try runRegister(allocator, init.io, &args);
+        return;
+    }
+
+    if (std.mem.eql(u8, cmd, "rm")) {
+        try runRm(allocator, init.io, &args);
         return;
     }
 
@@ -87,8 +93,22 @@ fn printUsage() void {
         \\  fits register new <OBJ_PREFIX>
         \\  fits register list
         \\  fits register rename <OLD_OBJ_PREFIX> <NEW_OBJ_PREFIX>
+        \\  fits rm <OBJ_NAME>
         \\
     , .{});
+}
+
+// Parses `fits rm` argv and delegates to [`remove_object_mod.run`].
+fn runRm(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
+    const obj_name = args.next() orelse {
+        printUsage();
+        return error.InvalidArgv;
+    };
+    if (args.next() != null) {
+        printUsage();
+        return error.InvalidArgv;
+    }
+    try remove_object_mod.run(allocator, io, remove_object_mod.default_repo_root, remove_object_mod.default_objects_dir, obj_name);
 }
 
 fn printRegisterUsage() void {
@@ -240,4 +260,9 @@ test {
     _ = @import("test/fits_registry_functional.zig");
     _ = @import("test/new_object_functional.zig");
     _ = @import("test/register_functional.zig");
+    _ = @import("test/remove_object_functional.zig");
+    _ = @import("test/tombstone_cache_functional.zig");
+    _ = @import("adapters/git/removal.zig");
+    _ = @import("domain/instance_id.zig");
+    _ = @import("adapters/cache/tombstone_cache.zig");
 }
