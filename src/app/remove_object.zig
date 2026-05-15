@@ -1,4 +1,4 @@
-//! CLI use-case: remove a FITS object instance, tombstone its id, and optionally record removal in VCS.
+//! CLI use-case: remove an object instance or a link instance, tombstone ids, and optionally record removal in VCS.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -9,21 +9,43 @@ const git_removal = @import("../adapters/git/removal.zig");
 const instance_id = @import("../domain/instance_id.zig");
 const vcs_removal = @import("../domain/vcs_removal.zig");
 const new_object = @import("new_object.zig");
+const remove_link = @import("remove_link.zig");
 
 pub const default_repo_root: []const u8 = new_object.default_repo_root;
 pub const default_objects_dir: []const u8 = new_object.default_objects_dir;
 
-/// Removes object `obj_name` (`{OBJ_PREFIX}-{n}`), tombstones the id, and syncs cache.
+/// Removes object or link `id_arg` after disambiguation (object prefixes are tried before link types).
 pub fn run(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
     objects_rel: []const u8,
-    obj_name: []const u8,
+    id_arg: []const u8,
 ) !void {
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
+    const obj_prefs = try reg.objPrefixSlice(allocator);
+    defer allocator.free(obj_prefs);
+    const link_prefs = try reg.linkTypeSlice(allocator);
+    defer allocator.free(link_prefs);
+
+    const target_inst = instance_id.parseRmTarget(id_arg, obj_prefs, link_prefs) orelse return error.InvalidObjName;
+
+    switch (target_inst) {
+        .link => return remove_link.run(allocator, io, repo_root, id_arg),
+        .obj => try runRemoveObjectOnly(allocator, io, repo_root, objects_rel, id_arg, &reg),
+    }
+}
+
+fn runRemoveObjectOnly(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+    objects_rel: []const u8,
+    obj_name: []const u8,
+    reg: *fits_registry.Registry,
+) !void {
     const prefix_slice = try reg.objPrefixSlice(allocator);
     defer allocator.free(prefix_slice);
 
@@ -90,7 +112,7 @@ pub fn run(
     const id = try tombstone_cache.formatId(allocator, obj_prefix, n);
     defer allocator.free(id);
     try tombstone_cache.putTombstone(allocator, io, repo_root, id, refs);
-    try tombstone_cache.syncFromRegistry(allocator, io, repo_root, &reg);
+    try tombstone_cache.syncFromRegistry(allocator, io, repo_root, reg);
 
     if (!builtin.is_test) {
         if (merged.git_commit) |sha| {

@@ -1,6 +1,8 @@
-# FITS registry (`.fits/registry.json`)
+# fits registry (`.fits/registry.json`)
 
-The registry records which object type prefixes exist and which numeric instance ids have been issued or tombstoned. FITS commands read and update `.fits/registry.json; **do not edit it by hand**.
+The registry records which object type prefixes exist, which **link types** exist between those prefixes, and which numeric instance ids have been issued or tombstoned for each. `fits` commands read and update `.fits/registry.json`; **do not edit it by hand**.
+
+For how link instances are stored and edited, see [fits links](fits_links.md).
 
 ## Schema
 
@@ -22,7 +24,8 @@ Every registry file is a single JSON object:
 | `description` | Canonical notice (purpose and “do not edit by hand”; written by the CLI) |
 | `version` | `1` |
 | `kind` | `"fits-registry-v1"` |
-| `prefixes` | array of prefix entries |
+| `prefixes` | array of object prefix entries |
+| `link_types` | optional array of link type entries (omitted or `[]` in older repos) |
 
 Example envelope:
 
@@ -31,9 +34,26 @@ Example envelope:
   "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
   "version": 1,
   "kind": "fits-registry-v1",
-  "prefixes": []
+  "prefixes": [],
+  "link_types": []
 }
 ```
+
+## Link type entries
+
+```json
+{
+  "link_type": "implements",
+  "in_obj_prefix": "REQ",
+  "out_obj_prefix": "DOC",
+  "next": 2
+}
+```
+
+- `link_type`: name of the link relation (same character rules as object prefixes; must not collide with any `obj_prefix`).
+- `in_obj_prefix` / `out_obj_prefix`: registered object prefixes. Instances link **from** `out` objects **to** `in` objects (see [fits_links.md](fits_links.md)).
+- `next`: next numeric suffix for this link type (same interpretation as `prefixes[].next`).
+- `tombstones`: optional, same shape as for object prefixes.
 
 ## Prefix entries
 

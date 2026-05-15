@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fits.local/schemas/registry.schema.json",
-  "title": "FITS registry",
+  "title": "fits registry",
   "description": "Machine-owned allocation state at .fits/registry.json",
   "type": "object",
   "additionalProperties": false,
@@ -9,13 +9,25 @@
   "properties": {
     "description": {
       "type": "string",
-      "const": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI."
+      "anyOf": [
+        {
+          "const": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI."
+        },
+        {
+          "const": "Tracks registered object type prefixes, link types, numeric id counters, and tombstones for objects and links. Do not edit by hand; use the fits CLI."
+        }
+      ]
     },
     "version": { "const": 1 },
     "kind": { "const": "fits-registry-v1" },
     "prefixes": {
       "type": "array",
       "items": { "$ref": "#/$defs/prefix" }
+    },
+    "link_types": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/linkType" },
+      "default": []
     }
   },
   "$defs": {
@@ -52,6 +64,22 @@
       "required": ["obj_prefix", "next"],
       "properties": {
         "obj_prefix": { "$ref": "#/$defs/objPrefix" },
+        "next": { "$ref": "#/$defs/nextCounter" },
+        "tombstones": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tombstone" },
+          "default": []
+        }
+      }
+    },
+    "linkType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["link_type", "in_obj_prefix", "out_obj_prefix", "next"],
+      "properties": {
+        "link_type": { "$ref": "#/$defs/objPrefix" },
+        "in_obj_prefix": { "$ref": "#/$defs/objPrefix" },
+        "out_obj_prefix": { "$ref": "#/$defs/objPrefix" },
         "next": { "$ref": "#/$defs/nextCounter" },
         "tombstones": {
           "type": "array",

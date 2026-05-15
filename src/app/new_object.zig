@@ -1,9 +1,10 @@
 //! CLI use-case: create a new object under `objects/` using the machine-owned registry.
 //! IDs are never reused after deletion: counters in `.fits/registry.json` only increase.
-//! The object type prefix must be registered first via `fits register new`.
+//! The object type prefix must be registered first via `fits register obj-type`.
 
 const builtin = @import("builtin");
 const std = @import("std");
+const fits_config = @import("../adapters/fs/fits_config.zig");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 
 /// Default repository root when the CLI is run from the project tree.
@@ -48,6 +49,16 @@ pub fn run(
         try validateTitleWord(w);
     }
 
+    var prefs = try fits_config.loadParsedConfigForRepo(allocator, io, repo_root);
+    defer prefs.deinit();
+
+    var use_markdown = options.markdown;
+    if (!options.markdown) {
+        if (prefs.objCreateFolder(obj_prefix)) |cf| {
+            if (!cf) use_markdown = true;
+        }
+    }
+
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
@@ -64,7 +75,7 @@ pub fn run(
     defer allocator.free(objects_dir_path);
     try cwd.createDirPath(io, objects_dir_path);
 
-    if (options.markdown) {
+    if (use_markdown) {
         const file_name = try std.mem.concat(allocator, u8, &.{ display_name, ".md" });
         defer allocator.free(file_name);
         const file_path = try std.fs.path.join(allocator, &.{ objects_dir_path, file_name });

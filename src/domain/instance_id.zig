@@ -8,6 +8,42 @@ pub const ParsedObjName = struct {
     n: u64,
 };
 
+/// Parsed canonical `LINK_TYPE-n` name (mirrors [`ParsedObjName`] field pattern).
+pub const ParsedLinkName = struct {
+    link_type: []const u8,
+    n: u64,
+};
+
+/// Wraps either an object id or a link instance id for [`fits rm`] disambiguation.
+pub const RmTarget = union(enum) {
+    obj: ParsedObjName,
+    link: ParsedLinkName,
+};
+
+/// Parses argv for `fits rm`, trying object prefixes before link types.
+pub fn parseRmTarget(name: []const u8, obj_prefixes: []const []const u8, link_types: []const []const u8) ?RmTarget {
+    if (parseObjName(name, obj_prefixes)) |o| return .{ .obj = o };
+    if (parseLinkName(name, link_types)) |l| return .{ .link = l };
+    return null;
+}
+
+/// Parses `link_name` as `{LINK_TYPE}-{n}` using registered link type names (longest match first).
+pub fn parseLinkName(link_name: []const u8, link_types: []const []const u8) ?ParsedLinkName {
+    const p = parseObjName(link_name, link_types) orelse return null;
+    return .{ .link_type = p.obj_prefix, .n = p.n };
+}
+
+/// Parses `full_id` as `{prefix}-{n}` using the same suffix rules as [`parseObjName`] (digits only, exact prefix match).
+///
+/// Parameters:
+/// - `full_id`: Candidate id such as `implements-3`.
+/// - `prefix`: Expected prefix before `-`, such as `implements`.
+///
+/// Returns: numeric suffix `n`, or `null` when the shape does not match.
+pub fn parseSuffixAfterPrefix(full_id: []const u8, prefix: []const u8) ?u64 {
+    return parseCanonicalSuffix(prefix, full_id);
+}
+
 /// Parses `obj_name` as `{OBJ_PREFIX}-{n}` using registered prefixes (longest match first).
 ///
 /// Parameters:

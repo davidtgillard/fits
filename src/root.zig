@@ -1,4 +1,4 @@
-//! Example and test helpers for the FITS package layout (not used by the `fits` executable root).
+//! Example and test helpers for the `fits` package layout (not used by the `fits` executable root).
 //!
 //! The CLI entrypoint is [`main`](../main.zig).
 

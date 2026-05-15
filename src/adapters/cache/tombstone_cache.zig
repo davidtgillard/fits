@@ -62,6 +62,15 @@ pub fn syncFromRegistry(allocator: std.mem.Allocator, io: Io, repo_root: []const
             });
         }
     }
+    for (reg.link_types.items) |lt_entry| {
+        for (lt_entry.tombstones.items) |ts| {
+            const id = try formatId(allocator, lt_entry.link_type, ts.n);
+            defer allocator.free(id);
+            try putTombstone(allocator, io, repo_root, id, .{
+                .git_commit = ts.git_commit,
+            });
+        }
+    }
 }
 
 const CacheState = struct {

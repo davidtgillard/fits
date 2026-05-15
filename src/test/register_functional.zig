@@ -78,3 +78,27 @@ test "register list loads without error" {
     try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
     try register.runList(alloc, std.testing.io, repo_abs);
 }
+
+test "register link-type records endpoints in registry" {
+    const alloc = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(std.testing.io, "repo");
+
+    const repo_abs_z = try tmp.dir.realPathFileAlloc(std.testing.io, "repo", alloc);
+    defer alloc.free(repo_abs_z);
+    const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
+
+    try register.runObjType(alloc, std.testing.io, repo_abs, "REQ", false);
+    try register.runObjType(alloc, std.testing.io, repo_abs, "DOC", false);
+    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "REQ", "DOC", false);
+
+    const reg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "registry.json" });
+    defer alloc.free(reg_sub);
+    const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
+    defer alloc.free(contents);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"link_type\": \"implements\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"in_obj_prefix\": \"REQ\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"out_obj_prefix\": \"DOC\"") != null);
+}

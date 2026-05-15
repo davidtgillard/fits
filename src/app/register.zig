@@ -1,8 +1,10 @@
-//! CLI use-cases for `fits register`: manage object type prefixes in `.fits/registry.json`.
+//! CLI use-cases for `fits register`: object type prefixes and link types in `.fits/registry.json`, and link index rewrites when renaming link types.
 
 const builtin = @import("builtin");
 const std = @import("std");
+const fits_config = @import("../adapters/fs/fits_config.zig");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
+const links_index = @import("../adapters/fs/links_index.zig");
 const tombstone_cache = @import("../adapters/cache/tombstone_cache.zig");
 const new_object = @import("new_object.zig");
 
@@ -14,19 +16,26 @@ pub const default_objects_dir: []const u8 = new_object.default_objects_dir;
 
 /// Registers a new object type prefix in the registry.
 ///
-/// Parameters:
-/// - `allocator`: Used for registry load/save buffers.
-/// - `io`: Process I/O for registry file operations.
-/// - `repo_root`: Repository root containing `.fits/`.
-/// - `obj_prefix`: New prefix (validated by [`fits_registry.validateObjPrefix`]).
-///
-/// Returns: nothing on success.
-/// On failure: validation, [`error.DuplicateObjPrefix`], or registry I/O errors.
+/// Deprecated: use [`runObjType`] via `fits register obj-type`.
 pub fn runNew(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
     obj_prefix: []const u8,
+) !void {
+    if (!builtin.is_test) {
+        std.debug.print("warning: `fits register new` is deprecated; use `fits register obj-type {s}`\n", .{obj_prefix});
+    }
+    return runObjType(allocator, io, repo_root, obj_prefix, false);
+}
+
+/// Registers an object type prefix; optionally records `create_folder` preference in `.fits/fits_config.toml`.
+pub fn runObjType(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+    obj_prefix: []const u8,
+    create_folder: bool,
 ) !void {
     try fits_registry.validateObjPrefix(obj_prefix);
 
@@ -36,19 +45,55 @@ pub fn runNew(
     try reg.registerNewPrefix(obj_prefix);
     try reg.save(io, repo_root);
 
+    if (create_folder) {
+        try fits_config.mergeRepoObjTypeCreateFolder(allocator, io, repo_root, obj_prefix, true);
+    }
+
     if (!builtin.is_test) std.debug.print("Registered object type {s}\n", .{obj_prefix});
 }
 
-/// Lists registered object type prefixes to stdout (tab-separated: prefix, next).
+/// Registers a link type from `out_obj_prefix` → `in_obj_prefix` instances (`OUT` points to `IN`).
+pub fn runLinkType(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+    link_type: []const u8,
+    in_obj_prefix: []const u8,
+    out_obj_prefix: []const u8,
+    create_folder: bool,
+) !void {
+    try fits_registry.validateObjPrefix(link_type);
+    try fits_registry.validateObjPrefix(in_obj_prefix);
+    try fits_registry.validateObjPrefix(out_obj_prefix);
+
+    var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
+    defer reg.deinit();
+
+    try reg.registerNewLinkType(link_type, in_obj_prefix, out_obj_prefix);
+    try reg.save(io, repo_root);
+
+    if (create_folder) {
+        try fits_config.mergeRepoLinkTypeCreateFolder(allocator, io, repo_root, link_type, true);
+    }
+
+    if (!builtin.is_test) {
+        std.debug.print("Registered link type {s} (IN {s} <- OUT {s})\n", .{
+            link_type,
+            in_obj_prefix,
+            out_obj_prefix,
+        });
+    }
+}
+
+/// Lists object types only (tab-separated: prefix, next).
 ///
 /// Parameters:
-/// - `allocator`: Used for registry load.
+/// - `allocator`: Used for registry load and sort buffer.
 /// - `io`: Process I/O for registry file operations.
 /// - `repo_root`: Repository root containing `.fits/`.
 ///
-/// Returns: nothing on success.
-/// On failure: registry I/O or parse errors.
-pub fn runList(
+/// Returns: nothing on success, or registry I/O / JSON errors.
+pub fn runListObjTypes(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
@@ -72,21 +117,83 @@ pub fn runList(
     }
 }
 
-/// Renames an object type prefix in the registry and renames FITS-managed instances under `objects/`.
-///
-/// Only renames paths whose numeric suffix `n` satisfies `1 <= n < old_next` (issued range).
-/// Structural `OLD-*` matches outside that range are left untouched and warned on stderr.
+/// Lists link types (tab-separated: link_type, in_obj_prefix, out_obj_prefix, next).
 ///
 /// Parameters:
-/// - `allocator`: Used for paths and rename planning.
-/// - `io`: Process I/O for registry and directory operations.
-/// - `repo_root`: Repository root.
-/// - `objects_rel`: Objects directory relative to `repo_root`.
-/// - `old_prefix`: Existing registered prefix.
-/// - `new_prefix`: New prefix name.
+/// - `allocator`: Used for registry load and sort buffer.
+/// - `io`: Process I/O for registry file operations.
+/// - `repo_root`: Repository root containing `.fits/`.
 ///
-/// Returns: nothing on success.
-/// On failure: validation, unknown prefix, duplicate new prefix, rename conflicts, or I/O errors.
+/// Returns: nothing on success, or registry I/O / JSON errors.
+pub fn runListLinkTypes(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+) !void {
+    var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
+    defer reg.deinit();
+
+    const items = reg.link_types.items;
+    const sorted = try allocator.alloc(fits_registry.Registry.LinkTypeEntry, items.len);
+    defer allocator.free(sorted);
+    @memcpy(sorted, items);
+
+    std.mem.sortUnstable(fits_registry.Registry.LinkTypeEntry, sorted, {}, struct {
+        fn less(_: void, a: fits_registry.Registry.LinkTypeEntry, b: fits_registry.Registry.LinkTypeEntry) bool {
+            return std.mem.order(u8, a.link_type, b.link_type) == .lt;
+        }
+    }.less);
+
+    for (sorted) |entry| {
+        if (!builtin.is_test) {
+            std.debug.print("{s}\t{s}\t{s}\t{d}\n", .{
+                entry.link_type,
+                entry.in_obj_prefix,
+                entry.out_obj_prefix,
+                entry.next,
+            });
+        }
+    }
+}
+
+/// Lists object types, then link types (with section headers on stdout).
+///
+/// Parameters:
+/// - `allocator`: Used for registry load.
+/// - `io`: Process I/O for registry file operations.
+/// - `repo_root`: Repository root containing `.fits/`.
+///
+/// Returns: nothing on success, or registry I/O / parse errors.
+pub fn runListAll(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+) !void {
+    if (!builtin.is_test) std.debug.print("# object types (prefix\tnext)\n", .{});
+    try runListObjTypes(allocator, io, repo_root);
+    if (!builtin.is_test) std.debug.print("# link types (link_type\tin\tout\tnext)\n", .{});
+    try runListLinkTypes(allocator, io, repo_root);
+}
+
+/// Lists object types then link types (delegates to [`runListAll`]).
+///
+/// Parameters:
+/// - `allocator`: Used for registry load.
+/// - `io`: Process I/O for registry file operations.
+/// - `repo_root`: Repository root containing `.fits/`.
+///
+/// Returns: nothing on success, or registry I/O / parse errors.
+pub fn runList(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+) !void {
+    return runListAll(allocator, io, repo_root);
+}
+
+/// Renames an object type or link type; object renames also relocate `objects/` instances.
+///
+/// Deprecated: use [`runRenameType`].
 pub fn runRename(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -95,19 +202,62 @@ pub fn runRename(
     old_prefix: []const u8,
     new_prefix: []const u8,
 ) !void {
-    try fits_registry.validateObjPrefix(old_prefix);
-    try fits_registry.validateObjPrefix(new_prefix);
+    if (!builtin.is_test) {
+        std.debug.print("warning: `fits register rename` is deprecated; use `fits register rename-type`\n", .{});
+    }
+    return runRenameType(allocator, io, repo_root, objects_rel, old_prefix, new_prefix);
+}
+
+/// Renames a registered object prefix or link type.
+///
+/// Object renames relocate issued instances under `objects/` and update `fits_config.toml` keys.
+/// Link renames rewrite `relations/links.jsonc` rows and optional `relations/<id>/` folders.
+///
+/// Parameters:
+/// - `allocator`: Path buffers and registry allocations.
+/// - `io`: Filesystem I/O.
+/// - `repo_root`: Repository root.
+/// - `objects_rel`: Objects directory relative to `repo_root` (unused for pure link renames beyond API symmetry).
+/// - `old_name`: Current prefix or link type name.
+/// - `new_name`: Target name (must pass prefix validation).
+///
+/// Returns: `error.UnknownRenameTarget` when neither an object prefix nor link type matches `old_name`.
+pub fn runRenameType(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+    objects_rel: []const u8,
+    old_name: []const u8,
+    new_name: []const u8,
+) !void {
+    try fits_registry.validateObjPrefix(old_name);
+    try fits_registry.validateObjPrefix(new_name);
 
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
-    const old_next = reg.nextForObjPrefix(old_prefix) orelse return error.UnknownObjPrefix;
-    try reg.renamePrefix(old_prefix, new_prefix);
-    try renameManagedInstances(allocator, io, repo_root, objects_rel, old_prefix, new_prefix, old_next);
-    try reg.save(io, repo_root);
-    try tombstone_cache.syncFromRegistry(allocator, io, repo_root, &reg);
+    if (reg.hasObjPrefix(old_name)) {
+        const old_next = reg.nextForObjPrefix(old_name) orelse return error.UnknownObjPrefix;
+        try reg.renamePrefix(old_name, new_name);
+        try renameManagedInstances(allocator, io, repo_root, objects_rel, old_name, new_name, old_next);
+        try reg.save(io, repo_root);
+        try tombstone_cache.syncFromRegistry(allocator, io, repo_root, &reg);
+        try fits_config.renameRepoObjTypeCreateFolderKey(allocator, io, repo_root, old_name, new_name);
+        if (!builtin.is_test) std.debug.print("Renamed object type {s} -> {s}\n", .{ old_name, new_name });
+        return;
+    }
 
-    if (!builtin.is_test) std.debug.print("Renamed object type {s} -> {s}\n", .{ old_prefix, new_prefix });
+    if (reg.hasLinkType(old_name)) {
+        try links_index.rewriteLinkTypeRows(allocator, io, repo_root, old_name, new_name);
+        try reg.renameLinkType(old_name, new_name);
+        try fits_config.renameRepoLinkTypeCreateFolderKey(allocator, io, repo_root, old_name, new_name);
+        try reg.save(io, repo_root);
+        try tombstone_cache.syncFromRegistry(allocator, io, repo_root, &reg);
+        if (!builtin.is_test) std.debug.print("Renamed link type {s} -> {s}\n", .{ old_name, new_name });
+        return;
+    }
+
+    return error.UnknownRenameTarget;
 }
 
 const RenamePair = struct {

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fits.local/schemas/links.schema.json",
+  "title": "fits links index",
+  "description": "Human-editable link instances at relations/links.jsonc (comments stripped before validation)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["description", "version", "kind", "links"],
+  "properties": {
+    "description": {
+      "type": "string",
+      "const": "Directed links between issued object ids. Edit by hand or via fits CLI; validate with fits validate."
+    },
+    "version": { "const": 1 },
+    "kind": { "const": "fits-links-v1" },
+    "links": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/link" }
+    }
+  },
+  "$defs": {
+    "objPrefix": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "link_type", "out", "in"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*-[1-9][0-9]*$"
+        },
+        "link_type": { "$ref": "#/$defs/objPrefix" },
+        "out": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*-[1-9][0-9]*$"
+        },
+        "in": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*-[1-9][0-9]*$"
+        },
+        "labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      }
+    }
+  }
+}

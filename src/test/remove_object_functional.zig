@@ -9,7 +9,7 @@ const fits_registry = @import("../adapters/fs/fits_registry.zig");
 fn initGitRepo(alloc: std.mem.Allocator, io: std.Io, repo_abs: []const u8) !void {
     try runGit(alloc, io, &.{ "git", "-C", repo_abs, "init" });
     try runGit(alloc, io, &.{ "git", "-C", repo_abs, "config", "user.email", "fits@test.local" });
-    try runGit(alloc, io, &.{ "git", "-C", repo_abs, "config", "user.name", "FITS Test" });
+    try runGit(alloc, io, &.{ "git", "-C", repo_abs, "config", "user.name", "fits test" });
 }
 
 fn runGit(alloc: std.mem.Allocator, io: std.Io, argv: []const []const u8) !void {

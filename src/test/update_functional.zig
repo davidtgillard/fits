@@ -22,7 +22,7 @@ test "fits_config load creates default period" {
 
     const text = try tmp.dir.readFileAlloc(std.testing.io, cfg_path, std.testing.allocator, .unlimited);
     defer std.testing.allocator.free(text);
-    const cfg = try fits_config.parseConfig(text);
+    const cfg = try fits_config.parseConfig(std.testing.allocator, text);
     try std.testing.expectEqual(@as(u64, 3600), cfg.update_check_time_period);
 }
 

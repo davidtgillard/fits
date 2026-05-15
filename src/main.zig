@@ -1,10 +1,14 @@
-//! FITS CLI: dispatches subcommands and wires adapters to validate and object-creation flows.
+//! fits CLI: dispatches subcommands and wires adapters to validate and object-creation flows.
 
 const builtin = @import("builtin");
 const std = @import("std");
 const loader_mod = @import("adapters/fs/loader.zig");
 const ignore_mod = @import("adapters/git/ignore.zig");
 const cache_mod = @import("adapters/cache/latticedb_cache.zig");
+const fits_registry_mod = @import("adapters/fs/fits_registry.zig");
+const links_index_mod = @import("adapters/fs/links_index.zig");
+const links_validate_mod = @import("adapters/fs/links_validate.zig");
+const graph_mod = @import("domain/graph.zig");
 const graph_builder_mod = @import("domain/graph_builder.zig");
 const validation = @import("domain/validation.zig");
 const use_case_mod = @import("app/validate_use_case.zig");
@@ -13,6 +17,7 @@ const new_object_mod = @import("app/new_object.zig");
 const register_mod = @import("app/register.zig");
 const remove_object_mod = @import("app/remove_object.zig");
 const update_mod = @import("app/update.zig");
+const graph_link_endpoints_mod = @import("app/graph_link_endpoints_validator.zig");
 
 /// Program entry: parses argv, runs a subcommand, prints usage on unknown input.
 ///
@@ -75,6 +80,33 @@ pub fn main(init: std.process.Init) !void {
 
 // Loads bundles, runs validate use-case, prints a text summary line.
 fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process.Environ.Map) !void {
+    var reg = try fits_registry_mod.loadRegistry(allocator, io, ".");
+    defer reg.deinit();
+
+    var link_report = links_validate_mod.ValidationReport{ .allocator = allocator };
+    defer link_report.deinit();
+
+    const loaded = links_index_mod.loadLinks(allocator, io, ".", &reg, &link_report) catch |err| switch (err) {
+        error.LinksInvalid => {
+            const lp = try links_index_mod.formatLinksRelPath(allocator, ".");
+            defer allocator.free(lp);
+            link_report.print(lp);
+            return err;
+        },
+        else => |e| return e,
+    };
+    defer loaded.deinit();
+
+    var link_edges = try allocator.alloc(graph_mod.LinkEdgeInput, loaded.rows().len);
+    defer allocator.free(link_edges);
+    for (loaded.rows(), 0..) |r, i| {
+        link_edges[i] = .{
+            .link_type = r.link_type,
+            .out_id = r.out,
+            .in_id = r.in,
+        };
+    }
+
     const ignore = ignore_mod.IgnoreMatcher.init(".");
     const loader = loader_mod.Loader.init(ignore);
     const bundles = try loader.loadObjectBundles(allocator, ".", "objects");
@@ -87,8 +119,12 @@ fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.pro
     defer cache.deinit();
 
     var built_in = BuiltInValidator{};
+    var link_endpoints = graph_link_endpoints_mod.GraphLinkEndpointsValidator{};
 
-    const validators = [_]validation.Validator{built_in.asInterface()};
+    const validators = [_]validation.Validator{
+        built_in.asInterface(),
+        link_endpoints.asInterface(),
+    };
     var registry = use_case_mod.StaticValidatorRegistry{
         .validators = validators[0..],
     };
@@ -100,7 +136,7 @@ fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.pro
         .cache_store = cache.asInterface(),
     };
 
-    const report = try use_case.execute(bundles);
+    const report = try use_case.execute(bundles, link_edges);
     defer allocator.free(report.findings);
 
     var renderer = report_mod.TextRenderer{};
@@ -159,10 +195,13 @@ fn printUsage() void {
         \\Usage:
         \\  fits validate
         \\  fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
-        \\  fits register new <OBJ_PREFIX>
-        \\  fits register list
-        \\  fits register rename <OLD_OBJ_PREFIX> <NEW_OBJ_PREFIX>
-        \\  fits rm <OBJ_NAME>
+        \\  fits register obj-type <OBJ_PREFIX> [--create-folder]
+        \\  fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE> [--create-folder]
+        \\  fits register list [obj-types|link-types]
+        \\  fits register rename-type <OLD> <NEW>
+        \\  fits register new <OBJ_PREFIX>   (deprecated)
+        \\  fits register rename <OLD> <NEW>   (deprecated)
+        \\  fits rm <OBJ_ID or LINK_ID>
         \\  fits update [--check]
         \\  fits version
         \\
@@ -193,9 +232,12 @@ fn runRm(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
 fn printRegisterUsage() void {
     std.debug.print(
         \\Usage:
-        \\  fits register new <OBJ_PREFIX>
-        \\  fits register list
-        \\  fits register rename <OLD_OBJ_PREFIX> <NEW_OBJ_PREFIX>
+        \\  fits register obj-type <OBJ_PREFIX> [--create-folder]
+        \\  fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE> [--create-folder]
+        \\  fits register list [obj-types|link-types]
+        \\  fits register rename-type <OLD> <NEW>
+        \\  fits register new <OBJ_PREFIX>   (deprecated)
+        \\  fits register rename <OLD> <NEW>   (deprecated)
         \\
     , .{});
 }
@@ -259,12 +301,101 @@ fn runRegister(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
         return;
     }
 
+    if (std.mem.eql(u8, sub, "obj-type")) {
+        var create_folder = false;
+        var prefix: ?[]const u8 = null;
+        while (args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--create-folder")) {
+                create_folder = true;
+                continue;
+            }
+            if (prefix != null) {
+                printRegisterUsage();
+                return error.InvalidArgv;
+            }
+            prefix = arg;
+        }
+        const p = prefix orelse {
+            printRegisterUsage();
+            return error.InvalidArgv;
+        };
+        try register_mod.runObjType(allocator, io, register_mod.default_repo_root, p, create_folder);
+        return;
+    }
+
+    if (std.mem.eql(u8, sub, "link-type")) {
+        var create_folder = false;
+        var link_type: ?[]const u8 = null;
+        var in_prefix: ?[]const u8 = null;
+        var out_prefix: ?[]const u8 = null;
+        while (args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--create-folder")) {
+                create_folder = true;
+                continue;
+            }
+            if (link_type == null) {
+                link_type = arg;
+            } else if (in_prefix == null) {
+                in_prefix = arg;
+            } else if (out_prefix == null) {
+                out_prefix = arg;
+            } else {
+                printRegisterUsage();
+                return error.InvalidArgv;
+            }
+        }
+        const lt = link_type orelse {
+            printRegisterUsage();
+            return error.InvalidArgv;
+        };
+        const ip = in_prefix orelse {
+            printRegisterUsage();
+            return error.InvalidArgv;
+        };
+        const op = out_prefix orelse {
+            printRegisterUsage();
+            return error.InvalidArgv;
+        };
+        try register_mod.runLinkType(allocator, io, register_mod.default_repo_root, lt, ip, op, create_folder);
+        return;
+    }
+
     if (std.mem.eql(u8, sub, "list")) {
+        const filter = args.next();
+        if (filter == null) {
+            try register_mod.runListAll(allocator, io, register_mod.default_repo_root);
+            return;
+        }
         if (args.next() != null) {
             printRegisterUsage();
             return error.InvalidArgv;
         }
-        try register_mod.runList(allocator, io, register_mod.default_repo_root);
+        if (std.mem.eql(u8, filter.?, "obj-types")) {
+            try register_mod.runListObjTypes(allocator, io, register_mod.default_repo_root);
+            return;
+        }
+        if (std.mem.eql(u8, filter.?, "link-types")) {
+            try register_mod.runListLinkTypes(allocator, io, register_mod.default_repo_root);
+            return;
+        }
+        printRegisterUsage();
+        return error.InvalidArgv;
+    }
+
+    if (std.mem.eql(u8, sub, "rename-type")) {
+        const old_name = args.next() orelse {
+            printRegisterUsage();
+            return error.InvalidArgv;
+        };
+        const new_name = args.next() orelse {
+            printRegisterUsage();
+            return error.InvalidArgv;
+        };
+        if (args.next() != null) {
+            printRegisterUsage();
+            return error.InvalidArgv;
+        }
+        try register_mod.runRenameType(allocator, io, register_mod.default_repo_root, register_mod.default_objects_dir, old_name, new_name);
         return;
     }
 
@@ -344,6 +475,7 @@ test {
     _ = @import("test/fits_registry_functional.zig");
     _ = @import("test/new_object_functional.zig");
     _ = @import("test/register_functional.zig");
+    _ = @import("test/links_functional.zig");
     _ = @import("test/remove_object_functional.zig");
     _ = @import("test/tombstone_cache_functional.zig");
     _ = @import("test/update_functional.zig");

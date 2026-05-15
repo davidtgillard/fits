@@ -22,10 +22,22 @@ pub const ObjectBundle = struct {
     files: []const ObjectFile,
 };
 
+/// Borrowed trio describing one registered link for [`graph_builder.buildDeterministicSnapshot`].
+pub const LinkEdgeInput = struct {
+    /// Registered link type name.
+    link_type: []const u8,
+    /// `OUT` object id.
+    out_id: []const u8,
+    /// `IN` object id.
+    in_id: []const u8,
+};
+
 /// Kind of directed relationship between two objects in the graph.
 pub const EdgeKind = enum {
-    /// Target object is referenced by or depended on by the source.
+    /// Target object is referenced by or depended on by the source (legacy placeholder).
     references,
+    /// Registered link type from [`relations/links.jsonc`]; see [`GraphEdge.link_type`].
+    registered_link,
 };
 
 /// One node in the object graph.
@@ -36,12 +48,14 @@ pub const GraphNode = struct {
 
 /// Directed edge between two objects.
 pub const GraphEdge = struct {
-    /// Source object id.
+    /// Source object id (`OUT` endpoint for registered links).
     from_id: ObjectId,
-    /// Target object id.
+    /// Target object id (`IN` endpoint for registered links).
     to_id: ObjectId,
     /// Relationship semantics.
     kind: EdgeKind,
+    /// When `kind` is [`.registered_link`], the registered name (e.g. `implements`); otherwise empty.
+    link_type: []const u8,
 };
 
 /// Immutable graph over objects: nodes and edges in deterministic order.
@@ -57,7 +71,9 @@ pub const GraphSnapshot = struct {
     /// - `self`: Snapshot whose `nodes` and `edges` slices were allocated with `allocator`.
     /// - `allocator`: Same allocator used to allocate `nodes` and `edges`.
     ///
-    /// Returns: nothing. Does not free memory pointed to by ids or paths inside nodes/edges.
+    /// Returns: nothing. Does not free memory pointed to by ids or paths inside nodes.
+    /// For [`.registered_link`] edges, [`GraphEdge.link_type`] is not freed here when it aliases
+    /// loader-owned buffers; callers that allocated `link_type` per edge must free those separately.
     pub fn deinit(self: GraphSnapshot, allocator: std.mem.Allocator) void {
         allocator.free(self.nodes);
         allocator.free(self.edges);

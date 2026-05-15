@@ -1,6 +1,6 @@
 //! Git-oriented ignore matching (`.gitignore`, etc.) at the adapter boundary.
 
-/// Decides whether a path relative to the repo should be excluded from FITS snapshots.
+/// Decides whether a path relative to the repo should be excluded from snapshots used by fits.
 pub const IgnoreMatcher = struct {
     /// Repository root path used to resolve ignore files (implementation-defined).
     repo_root: []const u8,
