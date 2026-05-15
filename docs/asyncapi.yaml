@@ -1,0 +1,213 @@
+asyncapi: 3.1.0
+id: urn:com.fits:graph-rpc
+info:
+  title: fits graph JSON-RPC
+  version: 0.1.0
+  description: |
+    Local **JSON-RPC 2.0** API for querying the fits object/link graph and related VCS views.
+
+    **Transports (planned implementation):**
+    - **Primary:** one `fits` process per invocation; framing defined in `x-fits-framing` on each server.
+    - **Optional:** long-lived listener on a Unix domain socket with the same message payloads.
+
+    **Revisions:** Graph reads take a `Rev` selector. For `kind: worktree`, the working tree is the
+    current graph state; `base` names the commit used to interpret mixed or fallback behavior (normative
+    detail lives in fits documentation, not only in this spec).
+
+defaultContentType: application/json
+
+servers:
+  localStdio:
+    host: local
+    protocol: fits-stdio
+    protocolVersion: '1'
+    description: |
+      Request/reply over OS pipes. The client writes JSON-RPC to the process **stdin** and reads JSON-RPC
+      from **stdout**. This is the default transport for hooks and subprocess callers.
+    x-fits-transport: stdio
+    x-fits-framing: single-json-object
+
+  localUnixSocket:
+    host: '{socketPath}'
+    pathname: /fits-graph-rpc
+    protocol: unix-socket
+    protocolVersion: '1'
+    description: |
+      Optional long-lived listener on a Unix domain socket. The same JSON message shapes apply; framing is
+      typically newline-delimited JSON (one JSON-RPC object per line) for multiplexing.
+    variables:
+      socketPath:
+        default: /tmp/fits-graph-rpc.sock
+        description: Absolute path to the socket created by `fits api serve` (planned).
+    x-fits-transport: unix-socket
+    x-fits-framing: ndjson
+
+channels:
+  fitsStdin:
+    address: fits.stdin
+    servers:
+      - $ref: '#/servers/localStdio'
+    messages:
+      jsonRpcRequest:
+        $ref: '#/components/messages/JsonRpcRequest'
+
+  fitsStdout:
+    address: fits.stdout
+    servers:
+      - $ref: '#/servers/localStdio'
+    messages:
+      jsonRpcResponse:
+        $ref: '#/components/messages/JsonRpcResponse'
+
+  socketInbound:
+    address: null
+    servers:
+      - $ref: '#/servers/localUnixSocket'
+    messages:
+      jsonRpcRequest:
+        $ref: '#/components/messages/JsonRpcRequest'
+
+  socketOutbound:
+    address: null
+    servers:
+      - $ref: '#/servers/localUnixSocket'
+    messages:
+      jsonRpcResponse:
+        $ref: '#/components/messages/JsonRpcResponse'
+
+operations:
+  handleGraphRpc:
+    title: Handle JSON-RPC (stdio)
+    summary: fits receives a JSON-RPC call on stdin and emits a JSON-RPC response on stdout.
+    action: receive
+    channel:
+      $ref: '#/channels/fitsStdin'
+    messages:
+      - $ref: '#/channels/fitsStdin/messages/jsonRpcRequest'
+    reply:
+      channel:
+        $ref: '#/channels/fitsStdout'
+      messages:
+        - $ref: '#/channels/fitsStdout/messages/jsonRpcResponse'
+
+  handleGraphRpcOnSocket:
+    title: Handle JSON-RPC (Unix socket)
+    summary: fits receives a JSON-RPC call on the socket and replies on the same connection.
+    action: receive
+    channel:
+      $ref: '#/channels/socketInbound'
+    messages:
+      - $ref: '#/channels/socketInbound/messages/jsonRpcRequest'
+    reply:
+      channel:
+        $ref: '#/channels/socketOutbound'
+      messages:
+        - $ref: '#/channels/socketOutbound/messages/jsonRpcResponse'
+
+components:
+  messages:
+    JsonRpcRequest:
+      name: JsonRpcRequest
+      title: JSON-RPC 2.0 request
+      summary: Request envelope. Application parameters are carried in `params`.
+      contentType: application/json
+      payload:
+        type: object
+        required: [jsonrpc, method]
+        properties:
+          jsonrpc:
+            const: '2.0'
+          method:
+            type: string
+            description: Method name, conventionally `graph.*` or `vcs.*`.
+            examples: [graph.neighbors, vcs.status]
+          params:
+            description: Method-specific parameters. Omitted for methods that take no parameters.
+            oneOf:
+              - type: object
+              - type: array
+          id:
+            description: |
+              Correlates the response. Omitted for JSON-RPC notifications (no response).
+            oneOf:
+              - type: string
+              - type: integer
+
+    JsonRpcResponse:
+      name: JsonRpcResponse
+      title: JSON-RPC 2.0 response
+      summary: Success (`result`) or failure (`error`) envelope.
+      contentType: application/json
+      payload:
+        oneOf:
+          - type: object
+            required: [jsonrpc, result]
+            properties:
+              jsonrpc: { const: '2.0' }
+              result: {}
+              id:
+                description: Same as the request `id`, or `null` if the request used `null`.
+                oneOf:
+                  - type: string
+                  - type: integer
+                  - type: 'null'
+            description: Successful response. `id` MUST mirror the request except for notifications.
+          - type: object
+            required: [jsonrpc, error]
+            properties:
+              jsonrpc: { const: '2.0' }
+              error:
+                type: object
+                required: [code, message]
+                properties:
+                  code: { type: integer }
+                  message: { type: string }
+                  data: {}
+              id:
+                oneOf:
+                  - type: string
+                  - type: integer
+                  - type: 'null'
+            description: Error response.
+
+  schemas:
+    Rev:
+      description: Selects which revision of the repository graph to read.
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [worktree, commit]
+        base:
+          type: string
+          description: Named commit when `kind` is `worktree` (e.g. `HEAD`). Optional when `kind` is `commit`.
+          examples: [HEAD]
+        oid:
+          type: string
+          description: Git commit object id when `kind` is `commit`.
+
+    GraphNeighborsParams:
+      type: object
+      description: Parameters for `graph.neighbors` (planned).
+      required: [rev, ids]
+      properties:
+        rev:
+          $ref: '#/components/schemas/Rev'
+        ids:
+          type: array
+          items: { type: string }
+          description: Object identifiers (e.g. `REQ-001`).
+        direction:
+          type: string
+          enum: [in, out, both]
+          default: both
+        linkTypes:
+          type: array
+          items: { type: string }
+          nullable: true
+          description: When set, only edges whose link type is listed are traversed.
+        limitPerNode:
+          type: integer
+          minimum: 1
+          default: 256

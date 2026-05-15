@@ -14,6 +14,16 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate AsyncAPI
+        env:
+          SUPPRESS_NO_CONFIG_WARNING: "1"
+        run: npx --yes @asyncapi/cli@6.0.0 validate docs/asyncapi.yaml
+
       - name: Build
         run: zig build
 

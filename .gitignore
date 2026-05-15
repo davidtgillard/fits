@@ -1,3 +1,6 @@
 .zig-cache/
 zig-out/
 *.o
+
+# Local tooling (e.g. ad-hoc AsyncAPI CLI install)
+node_modules_asyncapi_cli/
