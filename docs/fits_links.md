@@ -2,6 +2,10 @@
 
 `fits` models **directed links** between **issued object ids**. A link instance points **from** an `out` object id **to** an `in` object id, and is classified by a **link type** registered in the machine-owned registry.
 
+## Creating link instances
+
+`fits new link <LINK_TYPE> <IN_ID> <OUT_ID>` allocates the next `{LINK_TYPE}-{n}` id, appends `{ "link_type": …, "out": OUT_ID, "in": IN_ID }` to `relations/links.jsonc`, updates the registry counter, creates `relations/{LINK_TYPE}-{n}/` when `[link_types.<LINK_TYPE>] create_folder = true` in `.fits/fits_config.toml`, and rejects unknown link types or object ids whose prefixes do not match the registered **in** / **out** object types for `LINK_TYPE`. Object ids must be canonical (`{PREFIX}-{digits}` only) and issued/not tombstoned. Multiple rows may share the same `(link_type, out, in)` triple.
+
 ## Direction and CLI order
 
 - **Semantics:** `out` → `in` (the `out` endpoint is the source of the edge; the `in` endpoint is the target).

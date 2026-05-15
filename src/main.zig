@@ -13,6 +13,7 @@ const graph_builder_mod = @import("domain/graph_builder.zig");
 const validation = @import("domain/validation.zig");
 const use_case_mod = @import("app/validate_use_case.zig");
 const report_mod = @import("output/report.zig");
+const new_link_mod = @import("app/new_link.zig");
 const new_object_mod = @import("app/new_object.zig");
 const register_mod = @import("app/register.zig");
 const remove_object_mod = @import("app/remove_object.zig");
@@ -195,6 +196,7 @@ fn printUsage() void {
         \\Usage:
         \\  fits validate
         \\  fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
+        \\  fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
         \\  fits register obj-type <OBJ_PREFIX> [--create-folder]
         \\  fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE> [--create-folder]
         \\  fits register list [obj-types|link-types]
@@ -242,12 +244,35 @@ fn printRegisterUsage() void {
     , .{});
 }
 
-// Parses `fits new` argv and delegates to [`new_object_mod.run`].
+// Parses `fits new` argv and delegates to [`new_object_mod.run`] or [`new_link_mod.run`].
 fn runNew(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
-    const obj_prefix = args.next() orelse {
+    const first = args.next() orelse {
         printUsage();
         return error.InvalidArgv;
     };
+
+    if (std.mem.eql(u8, first, "link")) {
+        const link_type = args.next() orelse {
+            printUsage();
+            return error.InvalidArgv;
+        };
+        const in_id = args.next() orelse {
+            printUsage();
+            return error.InvalidArgv;
+        };
+        const out_id = args.next() orelse {
+            printUsage();
+            return error.InvalidArgv;
+        };
+        if (args.next() != null) {
+            printUsage();
+            return error.InvalidArgv;
+        }
+        try new_link_mod.run(allocator, io, new_link_mod.default_repo_root, link_type, in_id, out_id);
+        return;
+    }
+
+    const obj_prefix = first;
 
     var markdown = false;
     var title_words: std.ArrayList([]const u8) = .empty;
@@ -470,9 +495,11 @@ test {
     _ = @import("adapters/cache/latticedb_cache.zig");
     _ = @import("adapters/github/release.zig");
     _ = @import("app/update.zig");
+    _ = @import("app/new_link.zig");
     _ = @import("app/new_object.zig");
     _ = @import("app/register.zig");
     _ = @import("test/fits_registry_functional.zig");
+    _ = @import("test/new_link_functional.zig");
     _ = @import("test/new_object_functional.zig");
     _ = @import("test/register_functional.zig");
     _ = @import("test/links_functional.zig");

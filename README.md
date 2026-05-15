@@ -28,6 +28,7 @@ Invoke `fits` with a subcommand. If you omit the subcommand or pass an unknown o
 Usage:
   fits validate
   fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
+  fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
   fits rm <OBJ_ID or LINK_ID>
   fits register obj-type <OBJ_PREFIX> [--create-folder]
   fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE> [--create-folder]
@@ -51,7 +52,7 @@ fits validate
 
 ### `fits register`
 
-Manages **object type prefixes** and **link types** in `.fits/registry.json`. Object types must be registered before `fits new`; link types must be registered before you add matching rows to `relations/links.jsonc`.
+Manages **object type prefixes** and **link types** in `.fits/registry.json`. Object types must be registered before `fits new`; link types must be registered before `fits new link` or before you add matching rows to `relations/links.jsonc` by hand.
 
 The registry format is defined by [`schemas/registry.schema.json`](schemas/registry.schema.json). **Do not edit `.fits/registry.json` by hand.** Field-level detail: [`docs/fits_registry.md`](docs/fits_registry.md). Directed links and `relations/links.jsonc`: [`docs/fits_links.md`](docs/fits_links.md).
 
@@ -104,6 +105,8 @@ Creates a new object under `objects/` using the registry. Each object gets an id
 - **`--markdown`**: Force a Markdown file in the new object path.
 - **`--`**: End of flags; everything after it is **title words**, joined with spaces for a human-readable display name suffix.
 
+**Links:** `fits new link <LINK_TYPE> <IN_ID> <OUT_ID>` appends one row to `relations/links.jsonc` with the next issued link id (`{LINK_TYPE}-{n}`). Arguments mirror `fits register link-type`: `IN_ID` must use the registry’s **in** object prefix for that link type and `OUT_ID` the **out** prefix (the stored edge is `{out: OUT_ID, in: IN_ID}`). Both object ids must be issued and not tombstoned. See [`docs/fits_links.md`](docs/fits_links.md).
+
 Examples:
 
 ```sh
@@ -111,6 +114,12 @@ fits register obj-type REQ
 fits new REQ
 fits new REQ --markdown
 fits new REQ --markdown -- User login flow
+
+fits register obj-type DOC
+fits register link-type implements REQ DOC
+fits new REQ
+fits new DOC
+fits new link implements REQ-1 DOC-1
 ```
 
 ### `fits rm`
