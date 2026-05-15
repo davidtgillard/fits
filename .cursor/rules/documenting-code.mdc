@@ -1,0 +1,29 @@
+---
+alwaysApply: true
+---
+
+# Documenting Zig
+
+## Module scope
+At the top of each file, use //! to state the module’s role, what it must not do (e.g. pure domain vs adapters), and how it fits the rest of the tree.
+
+## Public API
+Document every pub declaration with ///: types, const, struct fields, enum members, nested pub types, and pub const VTable function-pointer fields (treat each pointer as part of the public contract).
+
+pub fn (and public methods)
+For every public function, include:
+- A one-line summary.
+- /// Parameters: with a - \paramName`:` line per parameter (purpose, lifetime/borrowing if non-obvious).
+- /// Returns: describing the success value, void, or the main error cases / propagated errors when that matters.
+
+## Enums
+Each enum member that is part of the public model gets its own /// (especially if names are constrained, e.g. avoiding Zig keywords).
+
+## Private items
+Non-pub helpers (vtable trampolines, small local functions, non-obvious fields): add a short // or /// line explaining why it exists or what invariant it preserves—no essays.
+
+## Ownership / resources
+When a caller must free, keep a slice valid, or not alias state, say so under Parameters or Returns.
+
+## No doc drift
+If the signature or behavior changes, update the comment in the same change.
