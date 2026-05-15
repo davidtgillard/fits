@@ -86,7 +86,7 @@ fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.pro
     var link_report = links_validate_mod.ValidationReport{ .allocator = allocator };
     defer link_report.deinit();
 
-    const loaded = links_index_mod.loadLinks(allocator, io, ".", &reg, &link_report) catch |err| switch (err) {
+    var loaded = links_index_mod.loadLinks(allocator, io, ".", &reg, &link_report) catch |err| switch (err) {
         error.LinksInvalid => {
             const lp = try links_index_mod.formatLinksRelPath(allocator, ".");
             defer allocator.free(lp);
