@@ -21,7 +21,7 @@ pub fn run(
     objects_rel: []const u8,
     obj_name: []const u8,
 ) !void {
-    var reg = try fits_registry.Registry.load(allocator, io, repo_root);
+    var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
     const prefix_slice = try reg.objPrefixSlice(allocator);

@@ -1,6 +1,6 @@
-# FITS
+# `fits`
 
-FITS is a Zig command-line tool for working with versioned, folder-based dataset objects. This README only covers how to build the binary and use the CLI today.
+`fits` is a Zig command-line tool for working with versioned, folder-based dataset objects. This README only covers how to build the binary and use the CLI today.
 
 ## Prerequisites
 
@@ -48,6 +48,8 @@ fits validate
 
 Manages object type prefixes in the machine-owned registry at `.fits/registry.json`. Object types must be registered before you can create instances with `fits new`.
 
+The registry format is defined by [`schemas/registry.schema.json`](schemas/registry.schema.json). If the file is invalid, `fits` prints every structural problem (path and message) to stderr before exiting. See [`docs/fits_registry.md`](docs/fits_registry.md) for field-level detail. **Do not edit `.fits/registry.json` by hand** — only the `fits` CLI should change it.
+
 #### `fits register new <OBJ_PREFIX>`
 
 Registers a new object type prefix. Prefix rules: starts with an ASCII letter, then letters, digits, or underscore.
@@ -66,7 +68,7 @@ fits register list
 
 #### `fits register rename <OLD_OBJ_PREFIX> <NEW_OBJ_PREFIX>`
 
-Renames an object type in the registry and renames FITS-managed instances under `objects/`. Only instances whose numeric suffix `n` is in the issued range for the old prefix (`1 <= n < next` in the registry before rename) are renamed. Other paths that look like `OLD-*` but fall outside that range are left untouched and reported as warnings (assumed created outside FITS).
+Renames an object type in the registry and renames `fits`-managed instances under `objects/`. Only instances whose numeric suffix `n` is in the issued range for the old prefix (`1 <= n < next` in the registry before rename) are renamed. Other paths that look like `OLD-*` but fall outside that range are left untouched and reported as warnings (assumed created outside `fits`).
 
 ```sh
 fits register rename REQ FOO
@@ -91,7 +93,7 @@ fits new REQ --markdown -- User login flow
 
 ### `fits rm`
 
-Removes a FITS object instance by canonical id `{OBJ_PREFIX}-{n}` (e.g. `REQ-3`). All matching paths under `objects/` with that numeric suffix are removed (directories, markdown files, or titled variants).
+Removes a `fits` object instance by canonical id `{OBJ_PREFIX}-{n}` (e.g. `REQ-3`). All matching paths under `objects/` with that numeric suffix are removed (directories, markdown files, or titled variants).
 
 The numeric id is **tombstoned** in `.fits/registry.json` so it cannot be reissued. Tombstones use VCS-specific reference fields when removal is recorded in version control:
 

@@ -4,6 +4,8 @@
 
 const std = @import("std");
 
+const registry_validate = @import("registry_validate.zig");
+
 const Io = std.Io;
 const Dir = Io.Dir;
 
@@ -14,7 +16,7 @@ pub const fits_dir_name: []const u8 = ".fits";
 pub const registry_file_name: []const u8 = "registry.json";
 
 /// Current on-disk registry schema version written by [`Registry.save`].
-pub const registry_version: u32 = 2;
+pub const registry_version: u32 = 1;
 
 /// Git SHA-1 object name length in hex characters.
 pub const git_commit_hex_len: usize = 40;
@@ -30,36 +32,25 @@ pub const TombstoneEntry = struct {
     git_commit: ?[]const u8 = null,
 };
 
-/// JSON tombstone row (v2).
-const TombstoneJsonV2 = struct {
+/// JSON tombstone row on disk.
+const TombstoneJson = struct {
     n: u64,
     git_commit: ?[]const u8 = null,
 };
 
 /// JSON envelope written by [`Registry.save`].
-const RegistryJsonV2 = struct {
+const RegistryJson = struct {
+    description: []const u8,
     version: u32,
     kind: []const u8,
-    prefixes: []PrefixJsonV2,
+    prefixes: []PrefixJson,
 };
 
-/// JSON prefix entry (v2).
-const PrefixJsonV2 = struct {
+/// JSON prefix entry on disk.
+const PrefixJson = struct {
     obj_prefix: []const u8,
     next: u64,
-    tombstones: []TombstoneJsonV2 = &.{},
-};
-
-/// v1 on-disk shape (legacy `slug` field).
-const RegistryJsonV1 = struct {
-    version: u32,
-    kind: []const u8,
-    prefixes: []PrefixJsonV1,
-};
-
-const PrefixJsonV1 = struct {
-    slug: []const u8,
-    next: u64,
+    tombstones: []TombstoneJson = &.{},
 };
 
 /// In-memory registry: per-prefix monotonic counter and tombstone list.
@@ -88,7 +79,19 @@ pub const Registry = struct {
     }
 
     /// Loads registry from `repo_root`/.fits/registry.json`, or empty if missing.
-    pub fn load(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !Registry {
+    ///
+    /// Parameters:
+    /// - `validation_out`: When non-null and validation fails, receives an owned [`registry_validate.ValidationReport`]
+    ///   the caller must [`registry_validate.ValidationReport.deinit`].
+    ///
+    /// Returns: an in-memory registry on success.
+    /// On failure: I/O errors, JSON parse errors, or [`error.RegistryInvalid`] when structural validation fails.
+    pub fn load(
+        allocator: std.mem.Allocator,
+        io: Io,
+        repo_root: []const u8,
+        validation_out: ?*registry_validate.ValidationReport,
+    ) !Registry {
         const path = try joinRegistryPath(allocator, repo_root);
         defer allocator.free(path);
 
@@ -102,41 +105,29 @@ pub const Registry = struct {
         const contents = try readFileAlloc(file, io, allocator, max_bytes);
         defer allocator.free(contents);
 
-        const RegistryHeader = struct {
-            version: u32,
-            kind: []const u8,
-        };
+        var validation_report = try registry_validate.validateRegistryDocument(allocator, contents);
+        if (!validation_report.isEmpty()) {
+            if (validation_out) |out| {
+                out.* = validation_report;
+            } else {
+                validation_report.deinit();
+            }
+            return error.RegistryInvalid;
+        }
+        validation_report.deinit();
 
-        var parsed_header = try std.json.parseFromSlice(RegistryHeader, allocator, contents, .{
+        var parsed = try std.json.parseFromSlice(RegistryJson, allocator, contents, .{
             .ignore_unknown_fields = true,
         });
-        defer parsed_header.deinit();
+        defer parsed.deinit();
 
-        if (!std.mem.eql(u8, parsed_header.value.kind, "fits-registry-v1")) return error.InvalidRegistryKind;
+        if (parsed.value.version != registry_version) return error.UnsupportedRegistryVersion;
 
         var reg: Registry = .{ .allocator = allocator };
         errdefer reg.deinit();
 
-        switch (parsed_header.value.version) {
-            1 => {
-                var parsed_v1 = try std.json.parseFromSlice(RegistryJsonV1, allocator, contents, .{
-                    .ignore_unknown_fields = true,
-                });
-                defer parsed_v1.deinit();
-                for (parsed_v1.value.prefixes) |pj| {
-                    try mergePrefix(&reg, pj.slug, pj.next, &.{});
-                }
-            },
-            2 => {
-                var parsed_v2 = try std.json.parseFromSlice(RegistryJsonV2, allocator, contents, .{
-                    .ignore_unknown_fields = true,
-                });
-                defer parsed_v2.deinit();
-                for (parsed_v2.value.prefixes) |pj| {
-                    try mergePrefix(&reg, pj.obj_prefix, pj.next, pj.tombstones);
-                }
-            },
-            else => return error.UnsupportedRegistryVersion,
+        for (parsed.value.prefixes) |pj| {
+            try mergePrefix(&reg, pj.obj_prefix, pj.next, pj.tombstones);
         }
 
         for (reg.prefixes.items) |*entry| {
@@ -161,17 +152,17 @@ pub const Registry = struct {
 
         sortPrefixes(self.prefixes.items);
 
-        var prefixes_json = try self.allocator.alloc(PrefixJsonV2, self.prefixes.items.len);
+        var prefixes_json = try self.allocator.alloc(PrefixJson, self.prefixes.items.len);
         defer self.allocator.free(prefixes_json);
 
-        var tombstone_bufs: std.ArrayList([]TombstoneJsonV2) = .empty;
+        var tombstone_bufs: std.ArrayList([]TombstoneJson) = .empty;
         defer {
             for (tombstone_bufs.items) |buf| self.allocator.free(buf);
             tombstone_bufs.deinit(self.allocator);
         }
 
         for (self.prefixes.items, 0..) |e, i| {
-            const ts_json = try self.allocator.alloc(TombstoneJsonV2, e.tombstones.items.len);
+            const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
             try tombstone_bufs.append(self.allocator, ts_json);
             for (e.tombstones.items, 0..) |ts, j| {
                 ts_json[j] = .{
@@ -186,7 +177,8 @@ pub const Registry = struct {
             };
         }
 
-        const envelope = RegistryJsonV2{
+        const envelope = RegistryJson{
+            .description = registry_validate.registry_description,
             .version = registry_version,
             .kind = "fits-registry-v1",
             .prefixes = prefixes_json,
@@ -279,6 +271,45 @@ pub const Registry = struct {
     }
 };
 
+/// Relative display path for `.fits/registry.json` under `repo_root`.
+pub fn formatRegistryRelPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]const u8 {
+    if (std.mem.eql(u8, repo_root, ".")) {
+        return std.fs.path.join(allocator, &.{ fits_dir_name, registry_file_name });
+    }
+    return std.fs.path.join(allocator, &.{ repo_root, fits_dir_name, registry_file_name });
+}
+
+/// Loads the registry and prints all validation issues to stderr on [`error.RegistryInvalid`].
+///
+/// Parameters:
+/// - `allocator`: Used for paths and registry buffers.
+/// - `io`: Process I/O (unused today; reserved for future stderr routing).
+/// - `repo_root`: Repository root containing `.fits/`.
+///
+/// Returns: an in-memory registry on success.
+/// On failure: same errors as [`Registry.load`], with validation issues printed when applicable.
+pub fn loadRegistry(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !Registry {
+    var validation_report: registry_validate.ValidationReport = undefined;
+    const reg = Registry.load(allocator, io, repo_root, &validation_report) catch |err| {
+        if (err == error.RegistryInvalid) {
+            const display_path = formatRegistryRelPath(allocator, repo_root) catch {
+                validation_report.deinit();
+                return err;
+            };
+            defer allocator.free(display_path);
+            validation_report.print(display_path);
+            validation_report.deinit();
+        }
+        return err;
+    };
+    return reg;
+}
+
+/// Prints a validation report using the standard registry error line format.
+pub fn printValidationReport(registry_path: []const u8, report: *const registry_validate.ValidationReport) void {
+    report.print(registry_path);
+}
+
 /// Validates an object type prefix.
 pub fn validateObjPrefix(obj_prefix: []const u8) error{InvalidObjPrefix}!void {
     if (obj_prefix.len == 0) return error.InvalidObjPrefix;
@@ -298,7 +329,7 @@ pub fn validateGitCommit(commit: []const u8) error{InvalidGitCommit}!void {
     }
 }
 
-fn mergePrefix(reg: *Registry, obj_prefix: []const u8, next: u64, tombstones_json: []const TombstoneJsonV2) !void {
+fn mergePrefix(reg: *Registry, obj_prefix: []const u8, next: u64, tombstones_json: []const TombstoneJson) !void {
     const copy = try reg.allocator.dupe(u8, obj_prefix);
     errdefer reg.allocator.free(copy);
 
@@ -332,7 +363,7 @@ fn mergePrefix(reg: *Registry, obj_prefix: []const u8, next: u64, tombstones_jso
     sortTombstones(entry.tombstones.items);
 }
 
-fn tombstoneRicherThan(cur: TombstoneEntry, incoming: TombstoneJsonV2) bool {
+fn tombstoneRicherThan(cur: TombstoneEntry, incoming: TombstoneJson) bool {
     const cur_has = cur.git_commit != null;
     const inc_has = incoming.git_commit != null;
     if (inc_has and !cur_has) return true;
@@ -365,7 +396,8 @@ fn findTombstoneIndex(items: []const TombstoneEntry, n: u64) ?usize {
     return null;
 }
 
-fn joinRegistryPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]const u8 {
+/// Joins `repo_root` with `.fits/registry.json`.
+pub fn joinRegistryPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]const u8 {
     return std.fs.path.join(allocator, &.{ repo_root, fits_dir_name, registry_file_name });
 }
 

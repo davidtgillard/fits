@@ -48,7 +48,7 @@ pub fn run(
         try validateTitleWord(w);
     }
 
-    var reg = try fits_registry.Registry.load(allocator, io, repo_root);
+    var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
     if (!reg.hasObjPrefix(obj_prefix)) return error.UnknownObjPrefix;

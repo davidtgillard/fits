@@ -3,18 +3,47 @@
 
 const std = @import("std");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
+const registry_validate = @import("../adapters/fs/registry_validate.zig");
 
 const Registry = fits_registry.Registry;
 
-test "load merges duplicate prefix with max next (v1 slug field)" {
+test "load rejects invalid registry with RegistryInvalid" {
     const alloc = std.testing.allocator;
     const json =
         \\{
+        \\  "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
+        \\  "version": 1,
+        \\  "kind": "fits-registry-v1",
+        \\  "prefixes": [{ "obj_prefix": "BAD-PREFIX", "next": 0 }]
+        \\}
+    ;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(std.testing.io, "bad_repo/.fits");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "bad_repo/.fits/registry.json", .data = json });
+
+    const repo_abs_z = try tmp.dir.realPathFileAlloc(std.testing.io, "bad_repo", alloc);
+    defer alloc.free(repo_abs_z);
+    const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
+
+    var validation_report: registry_validate.ValidationReport = undefined;
+    try std.testing.expectError(error.RegistryInvalid, Registry.load(alloc, std.testing.io, repo_abs, &validation_report));
+    defer validation_report.deinit();
+    try std.testing.expect(validation_report.issues.items.len >= 2);
+}
+
+test "load merges duplicate prefix with max next" {
+    const alloc = std.testing.allocator;
+    const json =
+        \\{
+        \\  "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
         \\  "version": 1,
         \\  "kind": "fits-registry-v1",
         \\  "prefixes": [
-        \\    { "slug": "REQ", "next": 3 },
-        \\    { "slug": "REQ", "next": 7 }
+        \\    { "obj_prefix": "REQ", "next": 3 },
+        \\    { "obj_prefix": "REQ", "next": 7 }
         \\  ]
         \\}
     ;
@@ -29,13 +58,13 @@ test "load merges duplicate prefix with max next (v1 slug field)" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    var reg = try Registry.load(alloc, std.testing.io, repo_abs);
+    var reg = try Registry.load(alloc, std.testing.io, repo_abs, null);
     defer reg.deinit();
 
     try std.testing.expectEqual(@as(u64, 7), try reg.allocateNextNumeric("REQ"));
 }
 
-test "save and load roundtrip writes v2 obj_prefix" {
+test "save and load roundtrip writes obj_prefix" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -54,7 +83,7 @@ test "save and load roundtrip writes v2 obj_prefix" {
         try reg.save(std.testing.io, repo_abs);
     }
 
-    var reg2 = try Registry.load(alloc, std.testing.io, repo_abs);
+    var reg2 = try Registry.load(alloc, std.testing.io, repo_abs, null);
     defer reg2.deinit();
     try std.testing.expectEqual(@as(u64, 2), try reg2.allocateNextNumeric("Z"));
 
@@ -62,8 +91,10 @@ test "save and load roundtrip writes v2 obj_prefix" {
     defer alloc.free(reg_sub);
     const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
     defer alloc.free(contents);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"description\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, registry_validate.registry_description) != null);
     try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"version\": 2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"version\": 1") != null);
 }
 
 test "tombstone with git_commit roundtrip" {
@@ -88,7 +119,7 @@ test "tombstone with git_commit roundtrip" {
         try reg.save(std.testing.io, repo_abs);
     }
 
-    var reg2 = try Registry.load(alloc, std.testing.io, repo_abs);
+    var reg2 = try Registry.load(alloc, std.testing.io, repo_abs, null);
     defer reg2.deinit();
     try std.testing.expect(reg2.isTombstoned("REQ", 1));
     try std.testing.expect(reg2.isTombstoned("REQ", 2));

@@ -255,6 +255,7 @@ const BuiltInValidator = struct {
 
 test {
     _ = @import("adapters/fs/fits_registry.zig");
+    _ = @import("adapters/fs/registry_validate.zig");
     _ = @import("app/new_object.zig");
     _ = @import("app/register.zig");
     _ = @import("test/fits_registry_functional.zig");

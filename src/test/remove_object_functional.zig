@@ -42,7 +42,7 @@ test "rm without git tombstones n only" {
     defer alloc.free(obj_path);
     try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(std.testing.io, obj_path, .{}));
 
-    var reg = try fits_registry.Registry.load(alloc, std.testing.io, repo_abs);
+    var reg = try fits_registry.Registry.load(alloc, std.testing.io, repo_abs, null);
     defer reg.deinit();
     try std.testing.expect(reg.isTombstoned("REQ", 1));
     try std.testing.expectEqual(@as(?[]const u8, null), reg.prefixes.items[0].tombstones.items[0].git_commit);
@@ -75,7 +75,7 @@ test "rm with git sets git_commit" {
 
     try remove_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ-1");
 
-    var reg = try fits_registry.Registry.load(alloc, std.testing.io, repo_abs);
+    var reg = try fits_registry.Registry.load(alloc, std.testing.io, repo_abs, null);
     defer reg.deinit();
     const ts = reg.prefixes.items[0].tombstones.items[0];
     try std.testing.expect(ts.git_commit != null);

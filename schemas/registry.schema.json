@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fits.local/schemas/registry.schema.json",
+  "title": "FITS registry",
+  "description": "Machine-owned allocation state at .fits/registry.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["description", "version", "kind", "prefixes"],
+  "properties": {
+    "description": {
+      "type": "string",
+      "const": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI."
+    },
+    "version": { "const": 1 },
+    "kind": { "const": "fits-registry-v1" },
+    "prefixes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/prefix" }
+    }
+  },
+  "$defs": {
+    "objPrefix": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+    },
+    "nextCounter": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{40}$"
+    },
+    "tombstone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n"],
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "git_commit": {
+          "$ref": "#/$defs/gitCommit"
+        }
+      }
+    },
+    "prefix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["obj_prefix", "next"],
+      "properties": {
+        "obj_prefix": { "$ref": "#/$defs/objPrefix" },
+        "next": { "$ref": "#/$defs/nextCounter" },
+        "tombstones": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tombstone" },
+          "default": []
+        }
+      }
+    }
+  }
+}

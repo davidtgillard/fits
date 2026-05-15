@@ -30,7 +30,7 @@ pub fn runNew(
 ) !void {
     try fits_registry.validateObjPrefix(obj_prefix);
 
-    var reg = try fits_registry.Registry.load(allocator, io, repo_root);
+    var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
     try reg.registerNewPrefix(obj_prefix);
@@ -53,7 +53,7 @@ pub fn runList(
     io: std.Io,
     repo_root: []const u8,
 ) !void {
-    var reg = try fits_registry.Registry.load(allocator, io, repo_root);
+    var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
     const items = reg.prefixes.items;
@@ -98,7 +98,7 @@ pub fn runRename(
     try fits_registry.validateObjPrefix(old_prefix);
     try fits_registry.validateObjPrefix(new_prefix);
 
-    var reg = try fits_registry.Registry.load(allocator, io, repo_root);
+    var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
     const old_next = reg.nextForObjPrefix(old_prefix) orelse return error.UnknownObjPrefix;
