@@ -1,0 +1,8 @@
+.{
+    .version = "0.1.0",
+    .objects_dir = "objects",
+    .validators = .{
+        // Plugin wire format intentionally deferred.
+        // This list is for future validator registration.
+    },
+}

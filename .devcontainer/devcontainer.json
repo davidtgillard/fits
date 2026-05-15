@@ -1,0 +1,17 @@
+{
+  "name": "fits (Zig)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "ZIG_VERSION": "0.16.0"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ziglang.vscode-zig"]
+    }
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "zig version && zig build"
+}
