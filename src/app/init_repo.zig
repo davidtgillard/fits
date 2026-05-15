@@ -5,7 +5,6 @@ const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const fits_config = @import("../adapters/fs/fits_config.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
 const latticedb_cache = @import("../adapters/cache/latticedb_cache.zig");
-const tombstone_cache = @import("../adapters/cache/tombstone_cache.zig");
 
 const Io = std.Io;
 const Dir = Io.Dir;
@@ -55,8 +54,6 @@ pub fn run(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !void {
     var reg: fits_registry.Registry = .{ .allocator = allocator };
     defer reg.deinit();
     try reg.save(io, repo_root);
-
-    try tombstone_cache.writeEmptyInitial(allocator, io, repo_root);
 
     const cfg_path = try fits_config.joinRepoFitsConfigPath(allocator, repo_root);
     defer allocator.free(cfg_path);

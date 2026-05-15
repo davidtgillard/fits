@@ -80,13 +80,6 @@ test "rm with git sets git_commit" {
     const ts = reg.prefixes.items[0].tombstones.items[0];
     try std.testing.expect(ts.git_commit != null);
     try std.testing.expectEqual(@as(usize, fits_registry.git_commit_hex_len), ts.git_commit.?.len);
-
-    const cache_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "tombstone_cache.json" });
-    defer alloc.free(cache_sub);
-    const cache_text = try tmp.dir.readFileAlloc(std.testing.io, cache_sub, alloc, .unlimited);
-    defer alloc.free(cache_text);
-    try std.testing.expect(std.mem.indexOf(u8, cache_text, "\"git_commit\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, cache_text, "REQ-1") != null);
 }
 
 test "rm twice errors" {

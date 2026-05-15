@@ -77,7 +77,3 @@ Example envelope:
 - **Missing file**: treated as an empty registry (no prefixes).
 - **Duplicate prefix rows**: multiple entries with the same `obj_prefix` are merged; `next` becomes the maximum of the duplicates. Tombstones are merged with a “richer wins” rule when both rows tombstone the same `n`.
 - **Semantic checks after structure**: allocation and tombstoning in memory still enforce registered prefixes, duplicate tombstones, and git commit format when recording removals.
-
-## Related files
-
-- `.fits/tombstone_cache.json` — derived mirror for fast lookup; same tombstone ids, not a substitute for the registry.

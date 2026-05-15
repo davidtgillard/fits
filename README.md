@@ -43,7 +43,7 @@ Usage:
 
 ### `fits init`
 
-Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty prefixes and link types), `.fits/tombstone_cache.json`, `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/latticedb/`, and `relations/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `relations/links.jsonc` already exists, the command prints an error and exits without changing files.
+Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty prefixes and link types), `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/latticedb/`, and `relations/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `relations/links.jsonc` already exists, the command prints an error and exits without changing files.
 
 ```sh
 fits init
@@ -142,8 +142,6 @@ Removes a **object** or **link** instance by id (e.g. `REQ-3` or `implements-1`)
 The numeric id is **tombstoned** in `.fits/registry.json` so it cannot be reissued. Tombstones use VCS-specific reference fields when removal is recorded in version control:
 
 - **`git_commit`**: full git object name of the removal commit when the repository root is a git repo and the paths were versioned.
-
-A mirror of tombstones is kept in `.fits/tombstone_cache.json` for fast local lookup.
 
 When the repo root is a git repository (has `.fits/../.git` at the repo root), `fits rm` runs `git rm` and creates a commit with message `fits rm: {id}`. Without git at the repo root, removal still tombstones the id but omits `git_commit`.
 

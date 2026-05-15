@@ -5,7 +5,6 @@ const std = @import("std");
 const fits_config = @import("../adapters/fs/fits_config.zig");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
-const tombstone_cache = @import("../adapters/cache/tombstone_cache.zig");
 const new_object = @import("new_object.zig");
 
 /// Default repository root when the CLI is run from the project tree.
@@ -241,7 +240,6 @@ pub fn runRenameType(
         try reg.renamePrefix(old_name, new_name);
         try renameManagedInstances(allocator, io, repo_root, objects_rel, old_name, new_name, old_next);
         try reg.save(io, repo_root);
-        try tombstone_cache.syncFromRegistry(allocator, io, repo_root, &reg);
         try fits_config.renameRepoObjTypeCreateFolderKey(allocator, io, repo_root, old_name, new_name);
         if (!builtin.is_test) std.debug.print("Renamed object type {s} -> {s}\n", .{ old_name, new_name });
         return;
@@ -252,7 +250,6 @@ pub fn runRenameType(
         try reg.renameLinkType(old_name, new_name);
         try fits_config.renameRepoLinkTypeCreateFolderKey(allocator, io, repo_root, old_name, new_name);
         try reg.save(io, repo_root);
-        try tombstone_cache.syncFromRegistry(allocator, io, repo_root, &reg);
         if (!builtin.is_test) std.debug.print("Renamed link type {s} -> {s}\n", .{ old_name, new_name });
         return;
     }

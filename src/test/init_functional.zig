@@ -3,7 +3,7 @@
 const std = @import("std");
 const init_repo = @import("../app/init_repo.zig");
 
-test "init creates registry links tombstone cache config and latticedb" {
+test "init creates registry links config and latticedb" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -28,12 +28,6 @@ test "init creates registry links tombstone cache config and latticedb" {
     const links_contents = try tmp.dir.readFileAlloc(std.testing.io, links_sub, alloc, .unlimited);
     defer alloc.free(links_contents);
     try std.testing.expect(std.mem.indexOf(u8, links_contents, "\"links\": []") != null);
-
-    const ts_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "tombstone_cache.json" });
-    defer alloc.free(ts_sub);
-    const ts_contents = try tmp.dir.readFileAlloc(std.testing.io, ts_sub, alloc, .unlimited);
-    defer alloc.free(ts_contents);
-    try std.testing.expect(std.mem.indexOf(u8, ts_contents, "\"entries\": []") != null);
 
     const cfg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "fits_config.toml" });
     defer alloc.free(cfg_sub);

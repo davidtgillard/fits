@@ -4,7 +4,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const objects_dir = @import("../adapters/fs/objects_dir.zig");
-const tombstone_cache = @import("../adapters/cache/tombstone_cache.zig");
 const git_removal = @import("../adapters/git/removal.zig");
 const instance_id = @import("../domain/instance_id.zig");
 const vcs_removal = @import("../domain/vcs_removal.zig");
@@ -108,11 +107,6 @@ fn runRemoveObjectOnly(
     };
     try reg.tombstoneNumeric(obj_prefix, n, refs);
     try reg.save(io, repo_root);
-
-    const id = try tombstone_cache.formatId(allocator, obj_prefix, n);
-    defer allocator.free(id);
-    try tombstone_cache.putTombstone(allocator, io, repo_root, id, refs);
-    try tombstone_cache.syncFromRegistry(allocator, io, repo_root, reg);
 
     if (!builtin.is_test) {
         if (merged.git_commit) |sha| {

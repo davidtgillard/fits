@@ -516,10 +516,8 @@ test {
     _ = @import("test/register_functional.zig");
     _ = @import("test/links_functional.zig");
     _ = @import("test/remove_object_functional.zig");
-    _ = @import("test/tombstone_cache_functional.zig");
     _ = @import("test/update_functional.zig");
     _ = @import("test/init_functional.zig");
     _ = @import("adapters/git/removal.zig");
     _ = @import("domain/instance_id.zig");
-    _ = @import("adapters/cache/tombstone_cache.zig");
 }

@@ -6,7 +6,6 @@ const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const instance_id = @import("../domain/instance_id.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
 const links_validate = @import("../adapters/fs/links_validate.zig");
-const tombstone_cache = @import("../adapters/cache/tombstone_cache.zig");
 
 pub const default_repo_root: []const u8 = ".";
 
@@ -56,7 +55,6 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, repo_root: []const u8, link
 
     try reg.tombstoneLinkNumeric(parsed.link_type, parsed.n, .{});
     try reg.save(io, repo_root);
-    try tombstone_cache.syncFromRegistry(allocator, io, repo_root, &reg);
 
     const cwd = std.Io.Dir.cwd();
     const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, links_index.relations_dir_name, link_id });
