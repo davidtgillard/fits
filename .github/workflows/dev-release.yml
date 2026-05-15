@@ -1,0 +1,42 @@
+name: Dev Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  dev-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+
+      - name: Build release binary
+        run: |
+          zig build -Doptimize=ReleaseSafe \
+            -Dgit_commit=${{ github.sha }} \
+            -Dgithub_owner=davidtgillard \
+            -Dgithub_repo=fits
+
+      - name: Create manifest
+        run: |
+          sha256=$(sha256sum zig-out/bin/fits | cut -d' ' -f1)
+          jq -n \
+            --arg c "${{ github.sha }}" \
+            --arg s "$sha256" \
+            '{git_commit: $c, sha256: $s}' > manifest.json
+
+      - name: Publish dev release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          name: dev
+          prerelease: true
+          make_latest: false
+          files: zig-out/bin/fits manifest.json

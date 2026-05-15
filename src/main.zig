@@ -1,5 +1,6 @@
 //! FITS CLI: dispatches subcommands and wires adapters to validate and object-creation flows.
 
+const builtin = @import("builtin");
 const std = @import("std");
 const loader_mod = @import("adapters/fs/loader.zig");
 const ignore_mod = @import("adapters/git/ignore.zig");
@@ -11,6 +12,7 @@ const report_mod = @import("output/report.zig");
 const new_object_mod = @import("app/new_object.zig");
 const register_mod = @import("app/register.zig");
 const remove_object_mod = @import("app/remove_object.zig");
+const update_mod = @import("app/update.zig");
 
 /// Program entry: parses argv, runs a subcommand, prints usage on unknown input.
 ///
@@ -21,6 +23,7 @@ const remove_object_mod = @import("app/remove_object.zig");
 /// validate pipeline errors, render errors, or registry / filesystem errors from other commands.
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
+    const io = init.io;
 
     var args = try init.minimal.args.iterateAllocator(allocator);
     defer args.deinit();
@@ -31,23 +34,39 @@ pub fn main(init: std.process.Init) !void {
         return;
     };
 
+    if (std.mem.eql(u8, cmd, "version")) {
+        update_mod.runVersion();
+        return;
+    }
+
+    if (std.mem.eql(u8, cmd, "update")) {
+        try runUpdate(allocator, io, init.environ_map, &args);
+        return;
+    }
+
+    if (!builtin.is_test and !std.mem.eql(u8, cmd, "update")) {
+        if (update_mod.shouldSpawnBackgroundCheck(allocator, io, init.environ_map) catch false) {
+            update_mod.spawnBackgroundCheck(allocator, io, init.environ_map) catch {};
+        }
+    }
+
     if (std.mem.eql(u8, cmd, "validate")) {
-        try runValidate(allocator);
+        try runValidate(allocator, io, init.environ_map);
         return;
     }
 
     if (std.mem.eql(u8, cmd, "new")) {
-        try runNew(allocator, init.io, &args);
+        try runNew(allocator, io, &args);
         return;
     }
 
     if (std.mem.eql(u8, cmd, "register")) {
-        try runRegister(allocator, init.io, &args);
+        try runRegister(allocator, io, &args);
         return;
     }
 
     if (std.mem.eql(u8, cmd, "rm")) {
-        try runRm(allocator, init.io, &args);
+        try runRm(allocator, io, &args);
         return;
     }
 
@@ -55,14 +74,18 @@ pub fn main(init: std.process.Init) !void {
 }
 
 // Loads bundles, runs validate use-case, prints a text summary line.
-fn runValidate(allocator: std.mem.Allocator) !void {
+fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process.Environ.Map) !void {
     const ignore = ignore_mod.IgnoreMatcher.init(".");
     const loader = loader_mod.Loader.init(ignore);
     const bundles = try loader.loadObjectBundles(allocator, ".", "objects");
     defer allocator.free(bundles);
 
     var deterministic_builder = graph_builder_mod.DeterministicGraphBuilder{};
-    var cache = cache_mod.LatticeDbCache.init(allocator);
+    const store_dir = try cache_mod.LatticeDbCache.resolveStoreDir(allocator, io, environ, ".");
+    defer allocator.free(store_dir);
+    var cache = try cache_mod.LatticeDbCache.open(allocator, io, store_dir);
+    defer cache.deinit();
+
     var built_in = BuiltInValidator{};
 
     const validators = [_]validation.Validator{built_in.asInterface()};
@@ -84,6 +107,52 @@ fn runValidate(allocator: std.mem.Allocator) !void {
     try renderer.asInterface().render(report);
 }
 
+fn runUpdate(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    environ: *const std.process.Environ.Map,
+    args: anytype,
+) !void {
+    var check_only = false;
+    var background = false;
+
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--check")) {
+            check_only = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--background")) {
+            background = true;
+            continue;
+        }
+        printUpdateUsage();
+        return error.InvalidArgv;
+    }
+
+    var github_source: update_mod.GithubDevSource = .{ .environ = environ };
+    const source = github_source.asInterface();
+
+    if (background) {
+        try update_mod.runBackgroundCheck(allocator, io, environ, source);
+        return;
+    }
+
+    const store_dir = try cache_mod.LatticeDbCache.resolveStoreDir(allocator, io, environ, ".");
+    defer allocator.free(store_dir);
+    var cache = try cache_mod.LatticeDbCache.open(allocator, io, store_dir);
+    defer cache.deinit();
+
+    if (check_only) {
+        update_mod.runCheck(allocator, io, source, &cache, .{}) catch |err| switch (err) {
+            error.UpdateAvailable => return error.UpdateAvailable,
+            else => return err,
+        };
+        return;
+    }
+
+    try update_mod.runApply(allocator, io, source, &cache);
+}
+
 // Prints supported commands to stderr via the debug print path.
 fn printUsage() void {
     std.debug.print(
@@ -94,6 +163,16 @@ fn printUsage() void {
         \\  fits register list
         \\  fits register rename <OLD_OBJ_PREFIX> <NEW_OBJ_PREFIX>
         \\  fits rm <OBJ_NAME>
+        \\  fits update [--check]
+        \\  fits version
+        \\
+    , .{});
+}
+
+fn printUpdateUsage() void {
+    std.debug.print(
+        \\Usage:
+        \\  fits update [--check]
         \\
     , .{});
 }
@@ -256,6 +335,10 @@ const BuiltInValidator = struct {
 test {
     _ = @import("adapters/fs/fits_registry.zig");
     _ = @import("adapters/fs/registry_validate.zig");
+    _ = @import("adapters/fs/fits_config.zig");
+    _ = @import("adapters/cache/latticedb_cache.zig");
+    _ = @import("adapters/github/release.zig");
+    _ = @import("app/update.zig");
     _ = @import("app/new_object.zig");
     _ = @import("app/register.zig");
     _ = @import("test/fits_registry_functional.zig");
@@ -263,6 +346,7 @@ test {
     _ = @import("test/register_functional.zig");
     _ = @import("test/remove_object_functional.zig");
     _ = @import("test/tombstone_cache_functional.zig");
+    _ = @import("test/update_functional.zig");
     _ = @import("adapters/git/removal.zig");
     _ = @import("domain/instance_id.zig");
     _ = @import("adapters/cache/tombstone_cache.zig");

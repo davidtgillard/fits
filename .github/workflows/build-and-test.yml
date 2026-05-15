@@ -18,4 +18,6 @@ jobs:
         run: zig build
 
       - name: Test
+        env:
+          FITS_NO_UPDATE_CHECK: "1"
         run: zig build test

@@ -32,6 +32,8 @@ Usage:
   fits register new <OBJ_PREFIX>
   fits register list
   fits register rename <OLD_OBJ_PREFIX> <NEW_OBJ_PREFIX>
+  fits update [--check]
+  fits version
 ```
 
 ### `fits validate`
@@ -116,6 +118,41 @@ To inspect removal history in git:
 git show <git_commit from .fits/registry.json>
 ```
 
+### `fits version`
+
+Prints the git commit baked in at build time (CI releases) or `unknown (local build)` for `zig build` on your machine.
+
+```sh
+fits version
+```
+
+### `fits update`
+
+Linux-only self-update from the rolling GitHub Release tagged `dev` (published on every push to `main`). CI builds attach `fits` and `manifest.json` (`git_commit`, `sha256`).
+
+```sh
+fits update --check   # compare with dev release; exit 1 if newer
+fits update           # download, verify checksum, replace running binary
+```
+
+Local `zig build` binaries cannot self-update (no embedded commit). Install a CI-built binary to use updates.
+
+**Background checks:** On most commands, `fits` may spawn a detached `fits update --background` at most once per `update_check_time_period` (default 1 day). Configure in `.fits/fits_config.toml` when that directory exists, otherwise `~/.config/fits/fits_config.toml`:
+
+```toml
+update_check_time_period = 86400   # seconds; "1d" is also accepted
+```
+
+Last-check time is stored in the LatticeDB cache (`.fits/latticedb/` in a FITS repo, or `~/.fits/latticedb/` globally).
+
+Set `FITS_NO_UPDATE_CHECK=1` to disable background checks. For private repos, set `FITS_GITHUB_TOKEN` or `GITHUB_TOKEN`.
+
+Manual download:
+
+```sh
+gh release download dev -R davidtgillard/fits -p fits -p manifest.json
+```
+
 ## Exit status
 
-Non-zero exits indicate failures (e.g. invalid arguments, unregistered object type, I/O errors, or validation errors), depending on the subcommand and implementation.
+Non-zero exits indicate failures (e.g. invalid arguments, unregistered object type, I/O errors, or validation errors), depending on the subcommand and implementation. `fits update --check` exits `1` when a newer `dev` release is available.
