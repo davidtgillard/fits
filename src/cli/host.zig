@@ -410,7 +410,8 @@ fn runUpdate(
 
     if (check_only) {
         update_mod.runCheck(allocator, io, source, &cache, .{}) catch |err| switch (err) {
-            error.UpdateAvailable => return error.UpdateAvailable,
+            // Exit 1 without printing a second "error: …" line; message already shown.
+            error.UpdateAvailable => std.process.exit(1),
             else => return err,
         };
         return;

@@ -20,6 +20,7 @@ jobs:
       - name: Build release binary
         run: |
           zig build -Doptimize=ReleaseSafe \
+            -Dcpu=x86_64 \
             -Dgit_commit=${{ github.sha }} \
             -Dgithub_owner=davidtgillard \
             -Dgithub_repo=fits

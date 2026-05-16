@@ -2,7 +2,6 @@
 
 const std = @import("std");
 const build_options = @import("build_options");
-
 const Io = std.Io;
 
 pub const Manifest = struct {
@@ -29,6 +28,12 @@ const ManifestJson = struct {
     sha256: []const u8,
 };
 
+/// GitHub JSON includes many fields we do not model; ignore the rest.
+const github_json_parse: std.json.ParseOptions = .{
+    .allocate = .alloc_always,
+    .ignore_unknown_fields = true,
+};
+
 /// Fetches and parses `manifest.json` from the `dev` release.
 pub fn fetchDevManifest(
     allocator: std.mem.Allocator,
@@ -38,7 +43,7 @@ pub fn fetchDevManifest(
     const body = try downloadReleaseAsset(allocator, io, environ, "manifest.json");
     defer allocator.free(body);
 
-    const parsed = try std.json.parseFromSlice(ManifestJson, allocator, body, .{ .allocate = .alloc_always });
+    const parsed = try std.json.parseFromSlice(ManifestJson, allocator, body, github_json_parse);
     defer parsed.deinit();
 
     if (parsed.value.git_commit.len != 40) return InvalidManifest;
@@ -75,7 +80,7 @@ fn downloadReleaseAsset(
     const release_body = try httpGet(allocator, io, environ, api_url, .api);
     defer allocator.free(release_body);
 
-    const parsed = try std.json.parseFromSlice(ReleaseJson, allocator, release_body, .{ .allocate = .alloc_always });
+    const parsed = try std.json.parseFromSlice(ReleaseJson, allocator, release_body, github_json_parse);
     defer parsed.deinit();
 
     for (parsed.value.assets) |asset| {
@@ -95,6 +100,25 @@ fn httpGet(
     url: []const u8,
     kind: RequestKind,
 ) ![]u8 {
+    // Release asset URLs are public; sending a stale GITHUB_TOKEN breaks api.github.com (401).
+    if (kind == .api) {
+        if (readAuthToken(environ)) |token| {
+            return httpGetOnce(allocator, io, url, kind, token) catch |err| {
+                if (err != error.HttpUnauthorized) return err;
+                return httpGetOnce(allocator, io, url, kind, null);
+            };
+        }
+    }
+    return httpGetOnce(allocator, io, url, kind, null);
+}
+
+fn httpGetOnce(
+    allocator: std.mem.Allocator,
+    io: Io,
+    url: []const u8,
+    kind: RequestKind,
+    auth_token: ?[]const u8,
+) ![]u8 {
     var client: std.http.Client = .{
         .allocator = allocator,
         .io = io,
@@ -113,25 +137,32 @@ fn httpGet(
     var auth_owned: ?[]u8 = null;
     defer if (auth_owned) |a| allocator.free(a);
 
-    if (readAuthToken(environ)) |token| {
+    if (auth_token) |token| {
         auth_owned = try std.fmt.allocPrint(allocator, "Bearer {s}", .{token});
         headers[n] = .{ .name = "Authorization", .value = auth_owned.? };
         n += 1;
     }
 
     var body_list: std.ArrayList(u8) = .empty;
-    defer body_list.deinit(allocator);
-    var body_writer = std.Io.Writer.fromArrayList(&body_list);
+    var body_writer_alloc = std.Io.Writer.Allocating.fromArrayList(allocator, &body_list);
+    defer body_writer_alloc.deinit();
 
     const result = try client.fetch(.{
         .location = .{ .url = url },
         .extra_headers = headers[0..n],
-        .response_writer = &body_writer,
+        .response_writer = &body_writer_alloc.writer,
     });
 
-    if (result.status != .ok) return if (result.status == .not_found) ReleaseNotFound else HttpError;
-    return body_list.toOwnedSlice(allocator);
+    if (result.status != .ok) {
+        if (result.status == .not_found) return ReleaseNotFound;
+        if (result.status == .unauthorized) return error.HttpUnauthorized;
+        return HttpError;
+    }
+    var body = body_writer_alloc.toArrayList();
+    return body.toOwnedSlice(allocator);
 }
+
+const HttpUnauthorized = error.HttpUnauthorized;
 
 fn readAuthToken(environ: *const std.process.Environ.Map) ?[]const u8 {
     return environ.get("FITS_GITHUB_TOKEN") orelse environ.get("GITHUB_TOKEN");

@@ -1,8 +1,16 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    // Release artifacts must not assume SHA-NI/AVX2 (Zig std crypto.sha2); CI runners
+    // often have those features while WSL2 guests and older hosts do not.
+    const default_target: std.Target.Query = if (optimize != .Debug)
+        .{ .cpu_model = .baseline }
+    else
+        .{};
+
+    const target = b.standardTargetOptions(.{ .default_target = default_target });
 
     const git_commit = b.option([]const u8, "git_commit", "Embedded git commit (40 hex chars)") orelse "";
     const github_owner = b.option([]const u8, "github_owner", "GitHub owner for self-update") orelse "davidtgillard";
