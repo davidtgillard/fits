@@ -39,4 +39,7 @@ jobs:
           name: dev
           prerelease: true
           make_latest: false
-          files: zig-out/bin/fits manifest.json
+          fail_on_unmatched_files: true
+          files: |
+            zig-out/bin/fits
+            manifest.json
