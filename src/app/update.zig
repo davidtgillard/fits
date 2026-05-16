@@ -237,7 +237,10 @@ fn verifySha256(data: []const u8, expected_hex: []const u8) !void {
     hasher.update(data);
     var digest: [32]u8 = undefined;
     hasher.final(&digest);
-    if (!std.mem.eql(u8, &digest, &expected)) return error.ChecksumMismatch;
+    if (!std.mem.eql(u8, &digest, &expected)) {
+        std.debug.print("error: downloaded binary SHA-256 does not match manifest\n", .{});
+        return error.ChecksumMismatch;
+    }
 }
 
 fn replaceExecutable(io: Io, allocator: std.mem.Allocator, binary: []const u8) !void {
@@ -298,3 +301,17 @@ pub const MockSource = struct {
 pub const NotUpdatable = error.NotUpdatable;
 pub const UpdateAvailable = error.UpdateAvailable;
 pub const ChecksumMismatch = error.ChecksumMismatch;
+
+/// True when the CLI already printed a user-facing message for this update error.
+pub fn isReportedUpdateError(err: anyerror) bool {
+    return switch (err) {
+        NotUpdatable,
+        ChecksumMismatch,
+        github_release.HttpError,
+        github_release.ReleaseNotFound,
+        github_release.AssetNotFound,
+        github_release.InvalidManifest,
+        => true,
+        else => false,
+    };
+}

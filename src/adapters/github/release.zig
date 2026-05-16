@@ -88,6 +88,10 @@ fn downloadReleaseAsset(
             return httpGet(allocator, io, environ, asset.browser_download_url, .asset);
         }
     }
+    std.debug.print(
+        "error: release tag dev has no asset named {s} (repo {s}/{s})\n",
+        .{ asset_name, build_options.github_owner, build_options.github_repo },
+    );
     return AssetNotFound;
 }
 
@@ -153,13 +157,45 @@ fn httpGetOnce(
         .response_writer = &body_writer_alloc.writer,
     });
 
+    const body_slice = body_writer_alloc.writer.buffered();
     if (result.status != .ok) {
+        reportHttpFailure(url, result.status, body_slice);
         if (result.status == .not_found) return ReleaseNotFound;
         if (result.status == .unauthorized) return error.HttpUnauthorized;
         return HttpError;
     }
     var body = body_writer_alloc.toArrayList();
     return body.toOwnedSlice(allocator);
+}
+
+/// Prints HTTP failure details to stderr (status, URL, response snippet, hints).
+fn reportHttpFailure(url: []const u8, status: std.http.Status, body: []const u8) void {
+    std.debug.print("error: GitHub HTTP {d} {s}\n", .{ @intFromEnum(status), @tagName(status) });
+    std.debug.print("  GET {s}\n", .{url});
+
+    if (body.len > 0) {
+        const max_show: usize = 512;
+        const show = @min(body.len, max_show);
+        std.debug.print("  response: {s}", .{body[0..show]});
+        if (body.len > show) std.debug.print("…", .{});
+        std.debug.print("\n", .{});
+    }
+
+    switch (status) {
+        .unauthorized => std.debug.print(
+            "  hint: set FITS_GITHUB_TOKEN or GITHUB_TOKEN if the repo is private\n",
+            .{},
+        ),
+        .forbidden => std.debug.print(
+            "  hint: rate-limited or forbidden; try a token or wait before retrying\n",
+            .{},
+        ),
+        .not_found => std.debug.print(
+            "  hint: ensure a GitHub release tagged dev exists at {s}/{s}\n",
+            .{ build_options.github_owner, build_options.github_repo },
+        ),
+        else => {},
+    }
 }
 
 const HttpUnauthorized = error.HttpUnauthorized;

@@ -413,12 +413,18 @@ fn runUpdate(
         update_mod.runCheck(allocator, io, source, &cache, .{}) catch |err| switch (err) {
             // Exit 1 without printing a second "error: …" line; message already shown.
             error.UpdateAvailable => std.process.exit(1),
-            else => return err,
+            else => {
+                if (update_mod.isReportedUpdateError(err)) std.process.exit(1);
+                return err;
+            },
         };
         return;
     }
 
-    try update_mod.runApply(allocator, io, source, &cache);
+    update_mod.runApply(allocator, io, source, &cache) catch |err| {
+        if (update_mod.isReportedUpdateError(err)) std.process.exit(1);
+        return err;
+    };
 }
 
 fn runRm(resolved: *const ResolvedPersona, allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
