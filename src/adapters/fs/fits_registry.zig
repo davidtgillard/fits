@@ -190,70 +190,7 @@ pub const Registry = struct {
         const tmp_path = try std.mem.concat(self.allocator, u8, &.{ final_path, ".tmp" });
         defer self.allocator.free(tmp_path);
 
-        sortPrefixes(self.prefixes.items);
-        sortLinkTypes(self.link_types.items);
-
-        var prefixes_json = try self.allocator.alloc(PrefixJson, self.prefixes.items.len);
-        defer self.allocator.free(prefixes_json);
-
-        var tombstone_bufs: std.ArrayList([]TombstoneJson) = .empty;
-        defer {
-            for (tombstone_bufs.items) |buf| self.allocator.free(buf);
-            tombstone_bufs.deinit(self.allocator);
-        }
-
-        for (self.prefixes.items, 0..) |e, i| {
-            const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
-            try tombstone_bufs.append(self.allocator, ts_json);
-            for (e.tombstones.items, 0..) |ts, j| {
-                ts_json[j] = .{
-                    .n = ts.n,
-                    .git_commit = ts.git_commit,
-                };
-            }
-            prefixes_json[i] = .{
-                .obj_prefix = e.obj_prefix,
-                .next = e.next,
-                .tombstones = ts_json,
-            };
-        }
-
-        var link_tombstone_bufs: std.ArrayList([]TombstoneJson) = .empty;
-        defer {
-            for (link_tombstone_bufs.items) |buf| self.allocator.free(buf);
-            link_tombstone_bufs.deinit(self.allocator);
-        }
-
-        var link_types_json = try self.allocator.alloc(LinkTypeJson, self.link_types.items.len);
-        defer self.allocator.free(link_types_json);
-
-        for (self.link_types.items, 0..) |e, i| {
-            const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
-            try link_tombstone_bufs.append(self.allocator, ts_json);
-            for (e.tombstones.items, 0..) |ts, j| {
-                ts_json[j] = .{
-                    .n = ts.n,
-                    .git_commit = ts.git_commit,
-                };
-            }
-            link_types_json[i] = .{
-                .link_type = e.link_type,
-                .in_obj_prefix = e.in_obj_prefix,
-                .out_obj_prefix = e.out_obj_prefix,
-                .next = e.next,
-                .tombstones = ts_json,
-            };
-        }
-
-        const envelope = RegistryJson{
-            .description = registry_validate.registry_description,
-            .version = registry_version,
-            .kind = "fits-registry-v1",
-            .prefixes = prefixes_json,
-            .link_types = link_types_json,
-        };
-
-        const json_text = try std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(envelope, .{ .whitespace = .indent_2 })});
+        const json_text = try registryJsonSlice(self);
         defer self.allocator.free(json_text);
 
         {
@@ -264,6 +201,16 @@ pub const Registry = struct {
         }
 
         try cwd.rename(tmp_path, cwd, final_path, io);
+    }
+
+    /// Serializes this registry as JSON (same shape as on-disk `.fits/registry.json`).
+    ///
+    /// Parameters:
+    /// - `self`: Registry to serialize.
+    ///
+    /// Returns: owned UTF-8 JSON; caller must free with [`Registry.allocator`].
+    pub fn toJsonText(self: *Registry) ![]const u8 {
+        return registryJsonSlice(self);
     }
 
     pub fn hasObjPrefix(self: *const Registry, obj_prefix: []const u8) bool {
@@ -463,6 +410,73 @@ pub const Registry = struct {
         return out;
     }
 };
+
+fn registryJsonSlice(self: *Registry) ![]const u8 {
+    sortPrefixes(self.prefixes.items);
+    sortLinkTypes(self.link_types.items);
+
+    var prefixes_json = try self.allocator.alloc(PrefixJson, self.prefixes.items.len);
+    defer self.allocator.free(prefixes_json);
+
+    var tombstone_bufs: std.ArrayList([]TombstoneJson) = .empty;
+    defer {
+        for (tombstone_bufs.items) |buf| self.allocator.free(buf);
+        tombstone_bufs.deinit(self.allocator);
+    }
+
+    for (self.prefixes.items, 0..) |e, i| {
+        const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
+        try tombstone_bufs.append(self.allocator, ts_json);
+        for (e.tombstones.items, 0..) |ts, j| {
+            ts_json[j] = .{
+                .n = ts.n,
+                .git_commit = ts.git_commit,
+            };
+        }
+        prefixes_json[i] = .{
+            .obj_prefix = e.obj_prefix,
+            .next = e.next,
+            .tombstones = ts_json,
+        };
+    }
+
+    var link_tombstone_bufs: std.ArrayList([]TombstoneJson) = .empty;
+    defer {
+        for (link_tombstone_bufs.items) |buf| self.allocator.free(buf);
+        link_tombstone_bufs.deinit(self.allocator);
+    }
+
+    var link_types_json = try self.allocator.alloc(LinkTypeJson, self.link_types.items.len);
+    defer self.allocator.free(link_types_json);
+
+    for (self.link_types.items, 0..) |e, i| {
+        const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
+        try link_tombstone_bufs.append(self.allocator, ts_json);
+        for (e.tombstones.items, 0..) |ts, j| {
+            ts_json[j] = .{
+                .n = ts.n,
+                .git_commit = ts.git_commit,
+            };
+        }
+        link_types_json[i] = .{
+            .link_type = e.link_type,
+            .in_obj_prefix = e.in_obj_prefix,
+            .out_obj_prefix = e.out_obj_prefix,
+            .next = e.next,
+            .tombstones = ts_json,
+        };
+    }
+
+    const envelope = RegistryJson{
+        .description = registry_validate.registry_description,
+        .version = registry_version,
+        .kind = "fits-registry-v1",
+        .prefixes = prefixes_json,
+        .link_types = link_types_json,
+    };
+
+    return std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(envelope, .{ .whitespace = .indent_2 })});
+}
 
 /// Relative display path for `.fits/registry.json` under `repo_root`.
 pub fn formatRegistryRelPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]const u8 {

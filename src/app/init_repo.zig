@@ -1,5 +1,6 @@
 //! CLI use-case: strict greenfield scaffold for `.fits/`, registry, links index, cache, and repo-local config.
 
+const builtin = @import("builtin");
 const std = @import("std");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const fits_config = @import("../adapters/fs/fits_config.zig");
@@ -35,7 +36,7 @@ pub fn run(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !void {
     if (pathExistsFile(cwd, io, reg_path)) {
         const disp = try fits_registry.formatRegistryRelPath(allocator, repo_root);
         defer allocator.free(disp);
-        std.debug.print("fits init: already initialized ({s} exists)\n", .{disp});
+        if (!builtin.is_test) std.debug.print("fits init: already initialized ({s} exists)\n", .{disp});
         return error.AlreadyInitialized;
     }
 
@@ -44,7 +45,7 @@ pub fn run(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !void {
     if (pathExistsFile(cwd, io, links_path)) {
         const disp = try links_index.formatLinksRelPath(allocator, repo_root);
         defer allocator.free(disp);
-        std.debug.print(
+        if (!builtin.is_test) std.debug.print(
             "fits init: already initialized ({s} exists)\n",
             .{disp},
         );

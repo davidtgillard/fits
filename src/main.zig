@@ -19,6 +19,8 @@ const register_mod = @import("app/register.zig");
 const remove_object_mod = @import("app/remove_object.zig");
 const update_mod = @import("app/update.zig");
 const graph_link_endpoints_mod = @import("app/graph_link_endpoints_validator.zig");
+const hooks_validate_mod = @import("app/hooks_validate.zig");
+const hooks_config_mod = @import("adapters/fs/hooks_config.zig");
 const init_repo_mod = @import("app/init_repo.zig");
 
 /// Program entry: parses argv, runs a subcommand, prints usage on unknown input.
@@ -58,7 +60,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (std.mem.eql(u8, cmd, "validate")) {
-        try runValidate(allocator, io, init.environ_map);
+        try runValidate(allocator, io, init.environ_map, &args);
         return;
     }
 
@@ -89,8 +91,28 @@ pub fn main(init: std.process.Init) !void {
     printUsage();
 }
 
-// Loads bundles, runs validate use-case, prints a text summary line.
-fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process.Environ.Map) !void {
+// Loads bundles, runs validate use-case, optional JSON hooks, prints a text summary line.
+fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process.Environ.Map, args: anytype) !void {
+    var cli_hooks = false;
+    var hooks_full = false;
+    var hooks_incremental = true;
+    while (args.next()) |a| {
+        if (std.mem.eql(u8, a, "--hooks")) {
+            cli_hooks = true;
+            continue;
+        }
+        if (std.mem.eql(u8, a, "--hooks-full")) {
+            hooks_full = true;
+            continue;
+        }
+        if (std.mem.eql(u8, a, "--no-hooks-incremental")) {
+            hooks_incremental = false;
+            continue;
+        }
+        std.debug.print("unknown validate flag: {s}\n", .{a});
+        return error.InvalidArgv;
+    }
+
     var reg = try fits_registry_mod.loadRegistry(allocator, io, ".");
     defer reg.deinit();
 
@@ -120,15 +142,22 @@ fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.pro
 
     const ignore = ignore_mod.IgnoreMatcher.init(".");
     const loader = loader_mod.Loader.init(ignore);
-    const bundles = try loader.loadObjectBundles(allocator, ".", "objects");
+    const prefixes = try reg.objPrefixSlice(allocator);
+    defer allocator.free(prefixes);
+
+    const bundles = try loader.loadObjectBundles(allocator, io, ".", "objects", prefixes);
     defer allocator.free(bundles);
 
-    var deterministic_builder = graph_builder_mod.DeterministicGraphBuilder{};
+    var hook_snapshot_builder = graph_builder_mod.DeterministicGraphBuilder{};
+    const hook_snapshot = try hook_snapshot_builder.asInterface().build(allocator, bundles, link_edges);
+    defer hook_snapshot.deinit(allocator);
+
     const store_dir = try cache_mod.LatticeDbCache.resolveStoreDir(allocator, io, environ, ".");
     defer allocator.free(store_dir);
     var cache = try cache_mod.LatticeDbCache.open(allocator, io, store_dir);
     defer cache.deinit();
 
+    var deterministic_builder = graph_builder_mod.DeterministicGraphBuilder{};
     var built_in = BuiltInValidator{};
     var link_endpoints = graph_link_endpoints_mod.GraphLinkEndpointsValidator{};
 
@@ -148,10 +177,88 @@ fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.pro
     };
 
     const report = try use_case.execute(bundles, link_edges);
-    defer allocator.free(report.findings);
+
+    var hook_cfg = try hooks_config_mod.load(allocator, io, ".");
+    defer hook_cfg.deinit(allocator);
+
+    const run_id = try makeValidateRunId(allocator);
+    defer allocator.free(run_id);
+
+    const git_head_opt = tryGitHead(allocator, io, ".");
+    defer if (git_head_opt) |h| allocator.free(h);
+
+    const hook_findings = try hooks_validate_mod.runHooks(
+        allocator,
+        io,
+        ".",
+        &reg,
+        &loaded,
+        bundles,
+        &hook_snapshot,
+        &cache,
+        &hook_cfg,
+        cli_hooks,
+        hooks_full,
+        hooks_incremental,
+        run_id,
+        git_head_opt,
+    );
+
+    const merged = try allocator.alloc(validation.Finding, report.findings.len + hook_findings.len);
+    @memcpy(merged[0..report.findings.len], report.findings);
+    @memcpy(merged[report.findings.len..], hook_findings);
+    allocator.free(report.findings);
+    allocator.free(hook_findings);
+
+    const final_report = report_mod.Report{
+        .findings = merged,
+        .summary = report_mod.summarize(merged),
+    };
+    defer {
+        for (merged) |f| allocator.free(f.message);
+        allocator.free(merged);
+    }
 
     var renderer = report_mod.TextRenderer{};
-    try renderer.asInterface().render(report);
+    try renderer.asInterface().render(final_report);
+}
+
+/// Best-effort `git rev-parse HEAD` for hook request metadata; returns null when git is missing or fails.
+fn tryGitHead(allocator: std.mem.Allocator, io: std.Io, repo_root: []const u8) ?[]const u8 {
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ "git", "-C", repo_root, "rev-parse", "HEAD" },
+        .cwd = .inherit,
+    }) catch return null;
+    defer allocator.free(result.stderr);
+    switch (result.term) {
+        .exited => |c| if (c != 0) {
+            allocator.free(result.stdout);
+            return null;
+        },
+        else => {
+            allocator.free(result.stdout);
+            return null;
+        },
+    }
+    const trimmed = std.mem.trim(u8, result.stdout, " \t\r\n");
+    const copy = allocator.dupe(u8, trimmed) catch {
+        allocator.free(result.stdout);
+        return null;
+    };
+    allocator.free(result.stdout);
+    return copy;
+}
+
+/// Allocates an opaque run id (POSIX `CLOCK_REALTIME` on Linux when available).
+fn makeValidateRunId(allocator: std.mem.Allocator) ![]const u8 {
+    if (builtin.target.os.tag == .linux) {
+        const linux = std.os.linux;
+        var ts: linux.timespec = undefined;
+        if (linux.clock_gettime(.REALTIME, &ts) == 0) {
+            return try std.fmt.allocPrint(allocator, "validate-{d}-{d}", .{ ts.sec, ts.nsec });
+        }
+    }
+    return try allocator.dupe(u8, "validate");
 }
 
 fn runUpdate(
@@ -205,7 +312,7 @@ fn printUsage() void {
     std.debug.print(
         \\Usage:
         \\  fits init
-        \\  fits validate
+        \\  fits validate [--hooks] [--hooks-full] [--no-hooks-incremental]
         \\  fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
         \\  fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
         \\  fits register obj-type <OBJ_PREFIX> [--create-folder]
@@ -520,4 +627,9 @@ test {
     _ = @import("test/init_functional.zig");
     _ = @import("adapters/git/removal.zig");
     _ = @import("domain/instance_id.zig");
+    _ = @import("domain/graph_subgraph.zig");
+    _ = @import("domain/hook_protocol.zig");
+    _ = @import("adapters/hooks/git_dirty.zig");
+    _ = @import("adapters/hooks/hook_request.zig");
+    _ = @import("app/hooks_validate.zig");
 }

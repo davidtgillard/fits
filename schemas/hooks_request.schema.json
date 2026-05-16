@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fits.local/schemas/hooks_request.schema.json",
+  "title": "fits hook request (stdin JSON)",
+  "description": "Single JSON message sent to object/link validation hooks. graph is a bounded subgraph; extension_graph_api for future full-graph access is documented in docs/fits_hooks.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "run", "registry", "graph", "work"],
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "extension_graph_api": {
+      "type": "string",
+      "description": "Reserved: documents future optional full-graph API for hooks."
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "trigger"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "git_head": { "type": ["string", "null"] },
+        "trigger": { "type": "string" }
+      }
+    },
+    "registry": {
+      "description": "JSON object matching fits-registry-v1 (same shape as .fits/registry.json).",
+      "type": "object"
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string" }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from_id", "to_id", "kind", "link_type"],
+            "properties": {
+              "from_id": { "type": "string" },
+              "to_id": { "type": "string" },
+              "kind": { "type": "string", "enum": ["references", "registered_link"] },
+              "link_type": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "work": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "objects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/workObject" }
+        },
+        "links": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/workLink" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "fileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative_path", "encoding", "content"],
+      "properties": {
+        "relative_path": { "type": "string" },
+        "encoding": { "type": "string", "enum": ["utf-8", "base64"] },
+        "content": { "type": "string" }
+      }
+    },
+    "workObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "files"],
+      "properties": {
+        "id": { "type": "string" },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileEntry" }
+        }
+      }
+    },
+    "workLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "link_type", "out", "in"],
+      "properties": {
+        "id": { "type": "string" },
+        "link_type": { "type": "string" },
+        "out": { "type": "string" },
+        "in": { "type": "string" },
+        "labels": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "folder_files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileEntry" }
+        }
+      }
+    }
+  }
+}
