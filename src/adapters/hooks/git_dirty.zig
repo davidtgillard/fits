@@ -6,15 +6,15 @@ const links_index = @import("../fs/links_index.zig");
 
 const Io = std.Io;
 
-/// Paths that differ from `HEAD`, used to skip unchanged objects/links when incremental hooks run.
+/// Paths that differ from `HEAD`, used to skip unchanged graph objects (nodes and links) when incremental hooks run.
 ///
 /// When [`have_git`](GitDirtyState.have_git) is false (no repo, `git` failed, or nonzero exit), callers
 /// should not filter by git and rely on fingerprinting only.
 pub const GitDirtyState = struct {
     /// True when `git diff HEAD --name-only` completed with exit 0.
     have_git: bool = false,
-    /// Object instance ids under `objects/<id>/`.
-    object_ids: std.StringHashMapUnmanaged(void) = .empty,
+    /// Node instance ids under `objects/<id>/`.
+    node_ids: std.StringHashMapUnmanaged(void) = .empty,
     /// Link instance ids for paths under `relations/<id>/` (not the links index file).
     link_folder_ids: std.StringHashMapUnmanaged(void) = .empty,
     /// The links index file [`relations/links.jsonc`](links_index.links_file_name) is in the diff.
@@ -26,9 +26,9 @@ pub const GitDirtyState = struct {
     /// - `self`: State populated by [`load`].
     /// - `allocator`: Same allocator used for map keys.
     pub fn deinit(self: *GitDirtyState, allocator: std.mem.Allocator) void {
-        var it = self.object_ids.iterator();
+        var it = self.node_ids.iterator();
         while (it.next()) |kv| allocator.free(kv.key_ptr.*);
-        self.object_ids.deinit(allocator);
+        self.node_ids.deinit(allocator);
         var it2 = self.link_folder_ids.iterator();
         while (it2.next()) |kv| allocator.free(kv.key_ptr.*);
         self.link_folder_ids.deinit(allocator);
@@ -74,7 +74,7 @@ pub fn load(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !GitDir
             if (id_slice.len == 0) continue;
             const owned = try allocator.dupe(u8, id_slice);
             errdefer allocator.free(owned);
-            try state.object_ids.put(allocator, owned, {});
+            try state.node_ids.put(allocator, owned, {});
             continue;
         }
 

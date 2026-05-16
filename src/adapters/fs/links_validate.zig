@@ -503,34 +503,34 @@ pub fn validateLinksAgainstRegistryRows(
             continue;
         }
 
-        const po = instance_id.parseObjName(row.out, obj_prefix_buf) orelse {
+        const po = instance_id.parseNodeName(row.out, obj_prefix_buf) orelse {
             const fp = formatFieldPath(report, lp, "out") catch continue;
             defer report.allocator.free(fp);
-            pushIssueStatic(report, fp, "out is not a canonical issued object id");
+            pushIssueStatic(report, fp, "out is not a canonical issued node id");
             continue;
         };
-        if (!std.mem.eql(u8, po.obj_prefix, expected_out)) {
+        if (!std.mem.eql(u8, po.node_prefix, expected_out)) {
             const fp = formatFieldPath(report, lp, "out") catch continue;
             defer report.allocator.free(fp);
-            pushIssueStatic(report, fp, "out object prefix does not match registered out_obj_prefix for this link_type");
+            pushIssueStatic(report, fp, "out node-type prefix does not match registered out_obj_prefix for this link_type");
             continue;
         }
 
-        const pi = instance_id.parseObjName(row.in, obj_prefix_buf) orelse {
+        const pi = instance_id.parseNodeName(row.in, obj_prefix_buf) orelse {
             const fp = formatFieldPath(report, lp, "in") catch continue;
             defer report.allocator.free(fp);
-            pushIssueStatic(report, fp, "in is not a canonical issued object id");
+            pushIssueStatic(report, fp, "in is not a canonical issued node id");
             continue;
         };
-        if (!std.mem.eql(u8, pi.obj_prefix, expected_in)) {
+        if (!std.mem.eql(u8, pi.node_prefix, expected_in)) {
             const fp = formatFieldPath(report, lp, "in") catch continue;
             defer report.allocator.free(fp);
-            pushIssueStatic(report, fp, "in object prefix does not match registered in_obj_prefix for this link_type");
+            pushIssueStatic(report, fp, "in node-type prefix does not match registered in_obj_prefix for this link_type");
             continue;
         }
 
-        validateIssuedObj(report, lp, "out", registry, po.obj_prefix, po.n);
-        validateIssuedObj(report, lp, "in", registry, pi.obj_prefix, pi.n);
+        validateIssuedObj(report, lp, "out", registry, po.node_prefix, po.n);
+        validateIssuedObj(report, lp, "in", registry, pi.node_prefix, pi.n);
     }
 }
 

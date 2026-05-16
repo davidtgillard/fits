@@ -12,9 +12,9 @@ const links_validate = @import("../adapters/fs/links_validate.zig");
 /// Default repository root when the CLI is run from the project tree.
 pub const default_repo_root: []const u8 = ".";
 
-/// Ensures `parsed` refers to a suffix already issued for its prefix and not tombstoned (mirrors link row validation for object endpoints).
-fn assertIssuedAliveObject(reg: *const fits_registry.Registry, parsed: instance_id.ParsedObjName) !void {
-    const prefix = parsed.obj_prefix;
+/// Ensures `parsed` refers to a suffix already issued for its prefix and not tombstoned (mirrors link row validation for node endpoints).
+fn assertIssuedAliveNode(reg: *const fits_registry.Registry, parsed: instance_id.ParsedNodeName) !void {
+    const prefix = parsed.node_prefix;
     const n = parsed.n;
     const next_val = reg.nextForObjPrefix(prefix) orelse return error.UnknownObjPrefix;
     if (n == 0 or n >= next_val) return error.NotInIssuedRange;
@@ -31,8 +31,8 @@ fn assertIssuedAliveObject(reg: *const fits_registry.Registry, parsed: instance_
 /// - `io`: Filesystem I/O.
 /// - `repo_root`: Repository root containing `.fits/registry.json` and `relations/`.
 /// - `link_type`: Registered link type name (`validateObjPrefix` + `hasLinkType`).
-/// - `in_id`: Canonical object id for the **in** endpoint (registry `in_obj_prefix`), e.g. matching the first object type in `fits register link-type`.
-/// - `out_id`: Canonical object id for the **out** endpoint (registry `out_obj_prefix`).
+/// - `in_id`: Canonical **node** id for the **in** endpoint (registry `in_obj_prefix`), e.g. matching the first node type in `fits register link-type`.
+/// - `out_id`: Canonical **node** id for the **out** endpoint (registry `out_obj_prefix`).
 ///
 /// Returns: nothing on success.
 /// On failure: prefix / parse / range / tombstone errors, [`error.UnknownLinkType`], [`error.LinkEndpointsMismatchRegistry`], links load/validation, or I/O.
@@ -57,15 +57,15 @@ pub fn run(
     const obj_prefixes = try reg.objPrefixSlice(allocator);
     defer allocator.free(obj_prefixes);
 
-    const pin = instance_id.parseObjName(in_id, obj_prefixes) orelse return error.InvalidObjName;
-    const pout = instance_id.parseObjName(out_id, obj_prefixes) orelse return error.InvalidObjName;
+    const pin = instance_id.parseNodeName(in_id, obj_prefixes) orelse return error.InvalidObjName;
+    const pout = instance_id.parseNodeName(out_id, obj_prefixes) orelse return error.InvalidObjName;
 
-    if (!std.mem.eql(u8, pin.obj_prefix, expected_in) or !std.mem.eql(u8, pout.obj_prefix, expected_out)) {
+    if (!std.mem.eql(u8, pin.node_prefix, expected_in) or !std.mem.eql(u8, pout.node_prefix, expected_out)) {
         return error.LinkEndpointsMismatchRegistry;
     }
 
-    try assertIssuedAliveObject(&reg, pin);
-    try assertIssuedAliveObject(&reg, pout);
+    try assertIssuedAliveNode(&reg, pin);
+    try assertIssuedAliveNode(&reg, pout);
 
     var link_report = links_validate.ValidationReport{ .allocator = allocator };
     defer link_report.deinit();
@@ -83,9 +83,9 @@ pub fn run(
 
     const n_link = try reg.allocateNextLinkNumeric(link_type);
 
-    const canon_in = try std.fmt.allocPrint(allocator, "{s}-{d}", .{ pin.obj_prefix, pin.n });
+    const canon_in = try std.fmt.allocPrint(allocator, "{s}-{d}", .{ pin.node_prefix, pin.n });
     defer allocator.free(canon_in);
-    const canon_out = try std.fmt.allocPrint(allocator, "{s}-{d}", .{ pout.obj_prefix, pout.n });
+    const canon_out = try std.fmt.allocPrint(allocator, "{s}-{d}", .{ pout.node_prefix, pout.n });
     defer allocator.free(canon_out);
 
     {

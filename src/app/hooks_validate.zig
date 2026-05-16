@@ -15,14 +15,14 @@ const lattice = @import("../adapters/cache/latticedb_cache.zig");
 
 const Io = std.Io;
 
-/// Runs object and/or link hooks and returns owned findings (empty when disabled).
+/// Runs graph-node and/or link hooks and returns owned findings (empty when disabled).
 pub fn runHooks(
     allocator: std.mem.Allocator,
     io: Io,
     repo_root: []const u8,
     reg: *fits_registry.Registry,
     loaded: *links_index.LoadedLinks,
-    bundles: []const graph.ObjectBundle,
+    bundles: []const graph.NodeBundle,
     full_snapshot: *const graph.GraphSnapshot,
     cache: *lattice.LatticeDbCache,
     cfg: *const hooks_config.HooksConfig,
@@ -50,19 +50,19 @@ pub fn runHooks(
     defer git_state.deinit(allocator);
     const git_ptr: ?*const git_dirty.GitDirtyState = if (use_git_narrowing) &git_state else null;
 
-    if (cfg.objects_argv.len != 0) {
-        const work_objs = try filterBundles(allocator, cache, "obj", cfg.objects_argv, hooks_full, hooks_incremental, git_ptr, bundles);
+    if (cfg.nodes_argv.len != 0) {
+        const work_objs = try filterBundles(allocator, cache, "node", cfg.nodes_argv, hooks_full, hooks_incremental, git_ptr, bundles);
         defer {
             for (work_objs) |*b| freeBundle(allocator, b);
             allocator.free(work_objs);
         }
         if (work_objs.len != 0) {
-            const body = try hook_request.objectRequestJson(allocator, reg, full_snapshot, work_objs, run_id, git_head, "validate");
+            const body = try hook_request.nodeRequestJson(allocator, reg, full_snapshot, work_objs, run_id, git_head, "validate");
             defer allocator.free(body);
             if (body.len > cfg.max_request_bytes) {
-                const msg = try std.fmt.allocPrint(allocator, "objects hook request too large ({d} > {d})", .{ body.len, cfg.max_request_bytes });
+                const msg = try std.fmt.allocPrint(allocator, "nodes hook request too large ({d} > {d})", .{ body.len, cfg.max_request_bytes });
                 defer allocator.free(msg);
-                const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "objects", msg);
+                const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "nodes", msg);
                 defer {
                     for (batch) |f| allocator.free(f.message);
                     allocator.free(batch);
@@ -70,7 +70,7 @@ pub fn runHooks(
                 try out.appendSlice(allocator, batch);
             } else {
                 const to = timeoutFromNs(cfg.timeout_ns);
-                if (subprocess_hook.runHook(allocator, io, cfg.objects_argv, body, cfg.max_request_bytes, 64 * 1024, to)) |rh| {
+                if (subprocess_hook.runHook(allocator, io, cfg.nodes_argv, body, cfg.max_request_bytes, 64 * 1024, to)) |rh| {
                     defer {
                         allocator.free(rh.stdout);
                         allocator.free(rh.stderr);
@@ -80,19 +80,19 @@ pub fn runHooks(
                             if (code != 0) {
                                 const msg = try std.fmt.allocPrint(allocator, "exit {d}: {s}", .{ code, rh.stderr });
                                 defer allocator.free(msg);
-                                const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "objects", msg);
+                                const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "nodes", msg);
                                 defer {
                                     for (batch) |f| allocator.free(f.message);
                                     allocator.free(batch);
                                 }
                                 try out.appendSlice(allocator, batch);
                             } else {
-                                try hook_protocol.appendFindingsFromHookResponseJson(allocator, rh.stdout, "objects", &out);
-                                try persistObjectFingerprints(allocator, cache, cfg.objects_argv, work_objs);
+                                try hook_protocol.appendFindingsFromHookResponseJson(allocator, rh.stdout, "nodes", &out);
+                                try persistNodeFingerprints(allocator, cache, cfg.nodes_argv, work_objs);
                             }
                         },
                         else => {
-                            const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "objects", "abnormal termination");
+                            const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "nodes", "abnormal termination");
                             defer {
                                 for (batch) |f| allocator.free(f.message);
                                 allocator.free(batch);
@@ -101,9 +101,9 @@ pub fn runHooks(
                         },
                     }
                 } else |err| {
-                    const msg = try std.fmt.allocPrint(allocator, "objects hook: {any}", .{err});
+                    const msg = try std.fmt.allocPrint(allocator, "nodes hook: {any}", .{err});
                     defer allocator.free(msg);
-                    const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "objects", msg);
+                    const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "nodes", msg);
                     defer {
                         for (batch) |f| allocator.free(f.message);
                         allocator.free(batch);
@@ -191,7 +191,7 @@ fn timeoutFromNs(ns: u64) Io.Timeout {
     } };
 }
 
-fn freeBundle(allocator: std.mem.Allocator, b: *graph.ObjectBundle) void {
+fn freeBundle(allocator: std.mem.Allocator, b: *graph.NodeBundle) void {
     allocator.free(b.id);
     for (b.files) |f| allocator.free(f.contents);
     for (b.files) |f| allocator.free(f.relative_path);
@@ -208,7 +208,7 @@ fn argvHash(argv: []const []const u8) u64 {
     return w.final();
 }
 
-fn fingerprintBundle(b: graph.ObjectBundle) u64 {
+fn fingerprintBundle(b: graph.NodeBundle) u64 {
     var w = std.hash.Wyhash.init(0);
     w.update(b.id);
     w.update("\x00");
@@ -217,7 +217,7 @@ fn fingerprintBundle(b: graph.ObjectBundle) u64 {
     defer std.heap.page_allocator.free(order);
     for (order, 0..) |*slot, i| slot.* = i;
     std.mem.sortUnstable(usize, order, b.files, struct {
-        fn less(fs: []const graph.ObjectFile, a: usize, c: usize) bool {
+        fn less(fs: []const graph.NodeFile, a: usize, c: usize) bool {
             return std.mem.order(u8, fs[a].relative_path, fs[c].relative_path) == .lt;
         }
     }.less);
@@ -230,10 +230,10 @@ fn fingerprintBundle(b: graph.ObjectBundle) u64 {
     return w.final();
 }
 
-fn cloneBundle(allocator: std.mem.Allocator, b: graph.ObjectBundle) !graph.ObjectBundle {
+fn cloneBundle(allocator: std.mem.Allocator, b: graph.NodeBundle) !graph.NodeBundle {
     const id = try allocator.dupe(u8, b.id);
     errdefer allocator.free(id);
-    const files = try allocator.alloc(graph.ObjectFile, b.files.len);
+    const files = try allocator.alloc(graph.NodeFile, b.files.len);
     errdefer {
         for (files) |g| allocator.free(g.contents);
         for (files) |g| allocator.free(g.relative_path);
@@ -256,10 +256,10 @@ fn filterBundles(
     hooks_full: bool,
     hooks_incremental: bool,
     git: ?*const git_dirty.GitDirtyState,
-    bundles: []const graph.ObjectBundle,
-) ![]graph.ObjectBundle {
+    bundles: []const graph.NodeBundle,
+) ![]graph.NodeBundle {
     if (hooks_full or !hooks_incremental) {
-        var out = try allocator.alloc(graph.ObjectBundle, bundles.len);
+        var out = try allocator.alloc(graph.NodeBundle, bundles.len);
         errdefer {
             for (out) |*b| freeBundle(allocator, b);
             allocator.free(out);
@@ -271,7 +271,7 @@ fn filterBundles(
     }
 
     const ah = argvHash(argv);
-    var list: std.ArrayListUnmanaged(graph.ObjectBundle) = .empty;
+    var list: std.ArrayListUnmanaged(graph.NodeBundle) = .empty;
     errdefer {
         for (list.items) |*b| freeBundle(allocator, b);
         list.deinit(allocator);
@@ -279,7 +279,7 @@ fn filterBundles(
 
     for (bundles) |b| {
         if (git) |g| {
-            if (g.have_git and !g.object_ids.contains(b.id)) continue;
+            if (g.have_git and !g.node_ids.contains(b.id)) continue;
         }
         const fp = fingerprintBundle(b);
         const key = try cacheKey(allocator, tag, ah, b.id);
@@ -349,15 +349,15 @@ fn cacheKey(allocator: std.mem.Allocator, kind: []const u8, argv_hash: u64, id: 
     return std.fmt.allocPrint(allocator, "hooks:{s}:{d}:{s}", .{ kind, argv_hash, id });
 }
 
-fn persistObjectFingerprints(
+fn persistNodeFingerprints(
     allocator: std.mem.Allocator,
     cache: *lattice.LatticeDbCache,
     argv: []const []const u8,
-    bundles: []const graph.ObjectBundle,
+    bundles: []const graph.NodeBundle,
 ) !void {
     const ah = argvHash(argv);
     for (bundles) |b| {
-        const key = try cacheKey(allocator, "obj", ah, b.id);
+        const key = try cacheKey(allocator, "node", ah, b.id);
         defer allocator.free(key);
         const fp = fingerprintBundle(b);
         var buf: [8]u8 = undefined;

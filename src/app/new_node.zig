@@ -1,6 +1,8 @@
-//! CLI use-case: create a new object under `objects/` using the machine-owned registry.
+//! CLI use-case: create a new graph node under `objects/` using the machine-owned registry.
 //! IDs are never reused after deletion: counters in `.fits/registry.json` only increase.
-//! The object type prefix must be registered first via `fits register obj-type`.
+//! The node type prefix must be registered first via `fits register obj-type`.
+//!
+//! **Terminology:** a **node** is a versioned dataset instance; an **object** is any graph member (node or link).
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -10,7 +12,7 @@ const fits_registry = @import("../adapters/fs/fits_registry.zig");
 /// Default repository root when the CLI is run from the project tree.
 pub const default_repo_root: []const u8 = ".";
 
-/// Default objects directory name under the repository root (matches validate).
+/// Default directory name under the repository root where node instances live (matches validate).
 pub const default_objects_dir: []const u8 = "objects";
 
 /// Options for [`run`].
@@ -21,7 +23,7 @@ pub const NewOptions = struct {
     title_words: []const []const u8 = &.{},
 };
 
-/// Creates a new object with id `{obj_prefix}-{n}` where `n` comes from the registry (never padded).
+/// Creates a new node with id `{obj_prefix}-{n}` where `n` comes from the registry (never padded).
 ///
 /// Persists the updated registry before touching `objects/` so concurrent runs still advance
 /// the counter even if directory creation fails (the numeric id is considered consumed).
@@ -30,7 +32,7 @@ pub const NewOptions = struct {
 /// - `allocator`: Used for path buffers and formatted names.
 /// - `io`: Process I/O implementation for filesystem operations.
 /// - `repo_root`: Repository root (`.` or an absolute path); `.fits/registry.json` lives here.
-/// - `objects_rel`: Directory under `repo_root` where the object is created (typically `objects`).
+/// - `objects_rel`: Directory under `repo_root` where the node is created (typically `objects`).
 /// - `obj_prefix`: User prefix such as `REQ` (must be registered; validated by [`fits_registry.validateObjPrefix`]).
 /// - `options`: Markdown vs folder and optional title words after `--`.
 ///

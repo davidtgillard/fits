@@ -22,15 +22,15 @@ pub const Finding = struct {
     code: []const u8,
     /// Human-readable explanation.
     message: []const u8,
-    /// Object the finding refers to, if any.
-    object_id: ?graph.ObjectId = null,
+    /// Graph object (node or link instance) this finding refers to, if any.
+    object_id: ?graph.NodeId = null,
 };
 
 /// Everything a pure validator needs: local bundle plus optional graph context.
 pub const ValidationInput = struct {
-    /// Object under validation.
-    bundle: graph.ObjectBundle,
-    /// Full or partial graph view when cross-object rules need it.
+    /// Node under validation (`bundle.id` is a graph node id).
+    bundle: graph.NodeBundle,
+    /// Full or partial graph view when cross-node rules need it.
     graph_view: ?*const graph.GraphSnapshot = null,
 };
 

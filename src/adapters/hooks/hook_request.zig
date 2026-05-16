@@ -1,4 +1,4 @@
-//! Serialize hook stdin JSON (protocol 1) using an arena for nested [`std.json.Value`] trees.
+//! Serialize hook stdin JSON (protocol 2) using an arena for nested [`std.json.Value`] trees.
 
 const std = @import("std");
 const graph = @import("../../domain/graph.zig");
@@ -15,11 +15,11 @@ const ObjectMap = std.json.ObjectMap;
 const max_file_bytes: usize = 16 * 1024 * 1024;
 
 /// Allocates the UTF-8 JSON body with `allocator`. Arena scratch state is freed before return.
-pub fn objectRequestJson(
+pub fn nodeRequestJson(
     allocator: std.mem.Allocator,
     reg: *fits_registry.Registry,
     full: *const graph.GraphSnapshot,
-    work: []const graph.ObjectBundle,
+    work: []const graph.NodeBundle,
     run_id: []const u8,
     git_head: ?[]const u8,
     trigger: []const u8,
@@ -32,7 +32,7 @@ pub fn objectRequestJson(
     for (work, 0..) |b, i| seeds[i] = b.id;
 
     var sub = try graph_subgraph.extractIncidentSubgraph(a, full, .{
-        .object_ids = seeds,
+        .node_ids = seeds,
         .extra_ids = &.{},
     }, .{});
     defer sub.deinit(a);
@@ -79,9 +79,9 @@ pub fn objectRequestJson(
     var work_o: ObjectMap = .empty;
     var wo = std.json.Array.init(a);
     for (work) |bundle| {
-        try wo.append(try objectWorkItem(a, bundle));
+        try wo.append(try nodeWorkItem(a, bundle));
     }
-    try work_o.put(a, "objects", .{ .array = wo });
+    try work_o.put(a, "nodes", .{ .array = wo });
     try root.put(a, "work", .{ .object = work_o });
 
     const root_val = JsonValue{ .object = root };
@@ -116,7 +116,7 @@ pub fn linkRequestJson(
     }
 
     var sub = try graph_subgraph.extractIncidentSubgraph(a, full, .{
-        .object_ids = &.{},
+        .node_ids = &.{},
         .extra_ids = extra[0..xi],
     }, .{});
     defer sub.deinit(a);
@@ -172,7 +172,7 @@ pub fn linkRequestJson(
     return std.fmt.allocPrint(allocator, "{f}", .{std.json.fmt(root_val, .{})});
 }
 
-fn objectWorkItem(a: std.mem.Allocator, bundle: graph.ObjectBundle) !JsonValue {
+fn nodeWorkItem(a: std.mem.Allocator, bundle: graph.NodeBundle) !JsonValue {
     var o: ObjectMap = .empty;
     try o.put(a, "id", .{ .string = try a.dupe(u8, bundle.id) });
     var fa = std.json.Array.init(a);

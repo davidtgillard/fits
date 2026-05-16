@@ -1,6 +1,6 @@
 # fits registry (`.fits/registry.json`)
 
-The registry records which object type prefixes exist, which **link types** exist between those prefixes, and which numeric instance ids have been issued or tombstoned for each. `fits` commands read and update `.fits/registry.json`; **do not edit it by hand**.
+The registry records which **node type** prefixes exist (JSON field `obj_prefix`), which **link types** exist between those prefixes, and which numeric instance ids have been issued or tombstoned for each node type and link type. `fits` commands read and update `.fits/registry.json`; **do not edit it by hand**.
 
 For how link instances are stored and edited, see [fits links](fits_links.md).
 

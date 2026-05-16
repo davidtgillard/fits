@@ -1,17 +1,17 @@
-//! CLI use-cases for `fits register`: object type prefixes and link types in `.fits/registry.json`, and link index rewrites when renaming link types.
+//! CLI use-cases for `fits register`: **node type** prefixes (CLI `obj-type`; stored as object prefixes in `.fits/registry.json`) and link types, plus link index rewrites when renaming link types.
 
 const builtin = @import("builtin");
 const std = @import("std");
 const fits_config = @import("../adapters/fs/fits_config.zig");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
-const new_object = @import("new_object.zig");
+const new_node = @import("new_node.zig");
 
 /// Default repository root when the CLI is run from the project tree.
-pub const default_repo_root: []const u8 = new_object.default_repo_root;
+pub const default_repo_root: []const u8 = new_node.default_repo_root;
 
 /// Default objects directory name under the repository root.
-pub const default_objects_dir: []const u8 = new_object.default_objects_dir;
+pub const default_objects_dir: []const u8 = new_node.default_objects_dir;
 
 /// Registers a new object type prefix in the registry.
 ///

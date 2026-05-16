@@ -1,4 +1,4 @@
-//! Builds a [`GraphSnapshot`](graph.GraphSnapshot) from [`ObjectBundle`](graph.ObjectBundle) slices.
+//! Builds a [`GraphSnapshot`](graph.GraphSnapshot) from [`NodeBundle`](graph.NodeBundle) slices.
 //! Graph construction is pure: no filesystem access.
 
 const std = @import("std");
@@ -6,8 +6,8 @@ const graph = @import("graph.zig");
 
 /// Errors produced while constructing a graph from bundles.
 pub const BuildError = error{
-    /// Two bundles claimed the same `ObjectId`.
-    DuplicateObjectId,
+    /// Two bundles claimed the same [`graph.NodeId`].
+    DuplicateNodeId,
 };
 
 /// Strategy object that turns normalized bundles into a graph snapshot.
@@ -24,14 +24,14 @@ pub const GraphBuilder = struct {
         /// Parameters:
         /// - `context`: Implementation state (`GraphBuilder.context`).
         /// - `allocator`: Allocator for the output snapshot's slices.
-        /// - `bundles`: Normalized object bundles to include as graph input.
+        /// - `bundles`: Normalized node bundles to include as graph input.
         /// - `link_edges`: Borrowed registered links (`OUT`→`IN`); may be empty.
         ///
         /// Returns: a [`graph.GraphSnapshot`] on success. On failure, returns an arbitrary error from the implementation.
         build: *const fn (
             context: *anyopaque,
             allocator: std.mem.Allocator,
-            bundles: []const graph.ObjectBundle,
+            bundles: []const graph.NodeBundle,
             link_edges: []const graph.LinkEdgeInput,
         ) anyerror!graph.GraphSnapshot,
     };
@@ -41,14 +41,14 @@ pub const GraphBuilder = struct {
     /// Parameters:
     /// - `self`: Type-erased builder.
     /// - `allocator`: Passed through to the implementation.
-    /// - `bundles`: Object bundles to turn into a graph snapshot.
+    /// - `bundles`: Node bundles to turn into a graph snapshot.
     /// - `link_edges`: Registered links to include as graph edges (may be empty).
     ///
     /// Returns: a [`graph.GraphSnapshot`] on success, or the same error as the underlying `build` implementation.
     pub fn build(
         self: GraphBuilder,
         allocator: std.mem.Allocator,
-        bundles: []const graph.ObjectBundle,
+        bundles: []const graph.NodeBundle,
         link_edges: []const graph.LinkEdgeInput,
     ) !graph.GraphSnapshot {
         return self.vtable.build(self.context, allocator, bundles, link_edges);
@@ -61,7 +61,7 @@ pub const DeterministicGraphBuilder = struct {
     fn buildAdapter(
         context: *anyopaque,
         allocator: std.mem.Allocator,
-        bundles: []const graph.ObjectBundle,
+        bundles: []const graph.NodeBundle,
         link_edges: []const graph.LinkEdgeInput,
     ) anyerror!graph.GraphSnapshot {
         _ = context;
@@ -92,11 +92,11 @@ pub const DeterministicGraphBuilder = struct {
 /// - `link_edges`: Directed edges from `out_id` to `in_id` per [`graph.LinkEdgeInput`].
 ///
 /// Returns: a [`graph.GraphSnapshot`] on success.
-/// On failure: `error.OutOfMemory` from allocation, or [`BuildError.DuplicateObjectId`] if bundle ids repeat.
+/// On failure: `error.OutOfMemory` from allocation, or [`BuildError.DuplicateNodeId`] if bundle ids repeat.
 /// Caller must free with [`graph.GraphSnapshot.deinit`].
 pub fn buildDeterministicSnapshot(
     allocator: std.mem.Allocator,
-    bundles: []const graph.ObjectBundle,
+    bundles: []const graph.NodeBundle,
     link_edges: []const graph.LinkEdgeInput,
 ) !graph.GraphSnapshot {
     var nodes = try allocator.alloc(graph.GraphNode, bundles.len);
@@ -107,7 +107,7 @@ pub fn buildDeterministicSnapshot(
 
     for (bundles, 0..) |bundle, idx| {
         if (try seen.fetchPut(bundle.id, {})) |_| {
-            return BuildError.DuplicateObjectId;
+            return BuildError.DuplicateNodeId;
         }
         nodes[idx] = .{ .id = bundle.id };
     }

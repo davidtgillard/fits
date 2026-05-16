@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const register = @import("../app/register.zig");
-const new_object = @import("../app/new_object.zig");
+const new_node = @import("../app/new_node.zig");
 
 test "register rename renames managed instance and updates registry" {
     const alloc = std.testing.allocator;
@@ -16,9 +16,9 @@ test "register rename renames managed instance and updates registry" {
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
     try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
-    try register.runRename(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", "FOO");
+    try register.runRename(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", "FOO");
 
     const old_path = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-1" });
     defer alloc.free(old_path);
@@ -51,7 +51,7 @@ test "register rename skips out-of-range instance" {
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
     try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
-    try register.runRename(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", "FOO");
+    try register.runRename(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", "FOO");
 
     const orphan = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-999" });
     defer alloc.free(orphan);

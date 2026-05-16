@@ -22,14 +22,14 @@ pub const ValidateUseCase = struct {
     ///
     /// Parameters:
     /// - `self`: Use-case configuration (allocator, graph builder, registry, cache stub).
-    /// - `bundles`: Object bundles to validate; each is validated with the same built graph snapshot.
+    /// - `bundles`: Node bundles to validate; each is validated with the same built graph snapshot.
     /// - `link_edges`: Registered links (`OUT`→`IN`) to materialize as graph edges.
     ///
     /// Returns: a [`report.Report`] whose `findings` slice is owned by the caller and must be freed with `self.allocator`.
     /// On failure: allocator errors, graph build errors, or any validator error.
     pub fn execute(
         self: ValidateUseCase,
-        bundles: []const graph.ObjectBundle,
+        bundles: []const graph.NodeBundle,
         link_edges: []const graph.LinkEdgeInput,
     ) !report.Report {
         var snapshot = try self.graph_builder.build(self.allocator, bundles, link_edges);

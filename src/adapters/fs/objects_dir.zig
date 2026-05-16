@@ -53,6 +53,6 @@ pub fn deleteInstancePath(io: Io, objects_path: []const u8, basename: []const u8
     switch (st.kind) {
         .directory => try cwd.deleteTree(io, full),
         .file => try cwd.deleteFile(io, full),
-        else => return error.UnsupportedObjectKind,
+        else => return error.UnsupportedNodeKind,
     }
 }

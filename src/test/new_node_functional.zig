@@ -1,10 +1,10 @@
-//! Functional tests for [`run`](../app/new_object.zig): creates paths on disk and updates the registry.
+//! Functional tests for [`run`](../app/new_node.zig): creates paths on disk and updates the registry.
 
 const std = @import("std");
-const new_object = @import("../app/new_object.zig");
+const new_node = @import("../app/new_node.zig");
 const register = @import("../app/register.zig");
 
-test "new object creates objects dir and registry entry when prefix registered" {
+test "new node creates objects dir and registry entry when prefix registered" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -16,7 +16,7 @@ test "new object creates objects dir and registry entry when prefix registered" 
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
     try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     const reg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "registry.json" });
     defer alloc.free(reg_sub);
@@ -31,7 +31,7 @@ test "new object creates objects dir and registry entry when prefix registered" 
     try std.testing.expectEqual(std.Io.File.Kind.directory, obj_st.kind);
 }
 
-test "new object fails without registered prefix" {
+test "new node fails without registered prefix" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -42,5 +42,5 @@ test "new object fails without registered prefix" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try std.testing.expectError(error.UnknownObjPrefix, new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{}));
+    try std.testing.expectError(error.UnknownObjPrefix, new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{}));
 }

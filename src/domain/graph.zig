@@ -1,64 +1,66 @@
-//! Pure domain types for object snapshots and an immutable graph view.
+//! Pure domain types for node snapshots and an immutable graph view.
+//! In fits vocabulary, a **graph object** is either a **node** (versioned dataset instance under `objects/`)
+//! or a **link** (edge instance from `relations/links.jsonc`). This module models nodes and their incident graph shape only.
 //! No filesystem or I/O: adapters build these values from disk.
 
 const std = @import("std");
 
-/// Stable logical identifier for a dataset object (not a host path).
-pub const ObjectId = []const u8;
+/// Stable logical identifier for a graph node (not a host path).
+pub const NodeId = []const u8;
 
-/// One file inside an object folder, addressed by path relative to that folder.
-pub const ObjectFile = struct {
-    /// Path relative to the object root, using POSIX separators.
+/// One file inside a node folder, addressed by path relative to that folder.
+pub const NodeFile = struct {
+    /// Path relative to the node root, using POSIX separators.
     relative_path: []const u8,
     /// Raw file bytes as read from the working tree.
     contents: []const u8,
 };
 
-/// Snapshot of one object's folder: id plus all contained files.
-pub const ObjectBundle = struct {
-    /// Logical id for this object.
-    id: ObjectId,
-    /// Files belonging to the object; order is meaningful for hashing and tests.
-    files: []const ObjectFile,
+/// Snapshot of one node's folder: id plus all contained files.
+pub const NodeBundle = struct {
+    /// Logical id for this node.
+    id: NodeId,
+    /// Files belonging to the node; order is meaningful for hashing and tests.
+    files: []const NodeFile,
 };
 
 /// Borrowed trio describing one registered link for [`graph_builder.buildDeterministicSnapshot`].
 pub const LinkEdgeInput = struct {
     /// Registered link type name.
     link_type: []const u8,
-    /// `OUT` object id.
+    /// `OUT` node id.
     out_id: []const u8,
-    /// `IN` object id.
+    /// `IN` node id.
     in_id: []const u8,
 };
 
-/// Kind of directed relationship between two objects in the graph.
+/// Kind of directed relationship between two nodes in the graph.
 pub const EdgeKind = enum {
-    /// Target object is referenced by or depended on by the source (legacy placeholder).
+    /// Target node is referenced by or depended on by the source (legacy placeholder).
     references,
     /// Registered link type from [`relations/links.jsonc`]; see [`GraphEdge.link_type`].
     registered_link,
 };
 
-/// One node in the object graph.
+/// One vertex in the graph snapshot (a node instance).
 pub const GraphNode = struct {
-    /// Object this node represents.
-    id: ObjectId,
+    /// Node id this vertex represents.
+    id: NodeId,
 };
 
-/// Directed edge between two objects.
+/// Directed edge between two nodes.
 pub const GraphEdge = struct {
-    /// Source object id (`OUT` endpoint for registered links).
-    from_id: ObjectId,
-    /// Target object id (`IN` endpoint for registered links).
-    to_id: ObjectId,
+    /// Source node id (`OUT` endpoint for registered links).
+    from_id: NodeId,
+    /// Target node id (`IN` endpoint for registered links).
+    to_id: NodeId,
     /// Relationship semantics.
     kind: EdgeKind,
     /// When `kind` is [`.registered_link`], the registered name (e.g. `implements`); otherwise empty.
     link_type: []const u8,
 };
 
-/// Immutable graph over objects: nodes and edges in deterministic order.
+/// Immutable graph over nodes: vertices and edges in deterministic order.
 pub const GraphSnapshot = struct {
     /// Nodes in stable, deterministic order (e.g. sorted by id).
     nodes: []const GraphNode,

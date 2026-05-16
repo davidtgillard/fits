@@ -1,4 +1,4 @@
-//! Filesystem adapter: loads object bundles from the repo working tree.
+//! Filesystem adapter: loads graph node bundles from the repo working tree (`objects/` by convention).
 
 const std = @import("std");
 const graph = @import("../../domain/graph.zig");
@@ -10,7 +10,7 @@ const Dir = Io.Dir;
 
 const max_file_bytes: usize = 16 * 1024 * 1024;
 
-/// Loads [`ObjectBundle`](graph.ObjectBundle) values from disk, respecting ignore rules.
+/// Loads [`NodeBundle`](graph.NodeBundle) values from disk, respecting ignore rules.
 pub const Loader = struct {
     /// Used to skip paths ignored by git-style rules.
     ignore_matcher: git_ignore.IgnoreMatcher,
@@ -27,37 +27,37 @@ pub const Loader = struct {
         };
     }
 
-    /// Scans `repo_root`/`objects_dir` for object directories and `.md` files; returns owned bundles sorted by id.
+    /// Scans `repo_root`/`objects_dir` for node directories and `.md` files; returns owned bundles sorted by id.
     ///
     /// Parameters:
     /// - `self`: Loader state (`ignore_matcher` reserved for future walks).
     /// - `allocator`: Used for paths, file contents, and the returned slice.
     /// - `io`: Filesystem I/O.
     /// - `repo_root`: Absolute or relative repository root path.
-    /// - `objects_dir`: Directory name or relative path under `repo_root` containing objects.
-    /// - `obj_prefixes`: Registered object prefixes; longest prefix wins when resolving basenames.
+    /// - `objects_dir`: Directory under `repo_root` holding node instances (typically named `objects`).
+    /// - `obj_prefixes`: Registered node-type prefixes; longest prefix wins when resolving basenames.
     ///
     /// Returns: a slice of bundles allocated with `allocator` (possibly empty). Caller must `allocator.free` the slice.
     /// On failure: I/O, allocation, or `error.FileTooBig`.
-    pub fn loadObjectBundles(
+    pub fn loadNodeBundles(
         self: Loader,
         allocator: std.mem.Allocator,
         io: Io,
         repo_root: []const u8,
         objects_dir: []const u8,
         obj_prefixes: []const []const u8,
-    ) ![]graph.ObjectBundle {
+    ) ![]graph.NodeBundle {
         const objects_path = try std.fs.path.join(allocator, &.{ repo_root, objects_dir });
         defer allocator.free(objects_path);
 
-        var bundles: std.ArrayListUnmanaged(graph.ObjectBundle) = .empty;
+        var bundles: std.ArrayListUnmanaged(graph.NodeBundle) = .empty;
         defer {
             for (bundles.items) |*b| freeBundle(allocator, b);
             bundles.deinit(allocator);
         }
 
         var dir = cwdOpenObjects(io, objects_path) catch |err| switch (err) {
-            error.FileNotFound => return try allocator.alloc(graph.ObjectBundle, 0),
+            error.FileNotFound => return try allocator.alloc(graph.NodeBundle, 0),
             else => |e| return e,
         };
         defer dir.close(io);
@@ -77,7 +77,7 @@ pub const Loader = struct {
             const entry_path = try std.fs.path.join(allocator, &.{ objects_path, entry.name });
             defer allocator.free(entry_path);
 
-            var files: std.ArrayListUnmanaged(graph.ObjectFile) = .empty;
+            var files: std.ArrayListUnmanaged(graph.NodeFile) = .empty;
             defer {
                 for (files.items) |f| allocator.free(f.contents);
                 for (files.items) |f| allocator.free(f.relative_path);
@@ -112,8 +112,8 @@ pub const Loader = struct {
             try bundles.append(allocator, .{ .id = id, .files = owned_files });
         }
 
-        std.mem.sortUnstable(graph.ObjectBundle, bundles.items, {}, struct {
-            fn less(_: void, a: graph.ObjectBundle, b: graph.ObjectBundle) bool {
+        std.mem.sortUnstable(graph.NodeBundle, bundles.items, {}, struct {
+            fn less(_: void, a: graph.NodeBundle, b: graph.NodeBundle) bool {
                 return std.mem.order(u8, a.id, b.id) == .lt;
             }
         }.less);
@@ -122,7 +122,7 @@ pub const Loader = struct {
     }
 };
 
-fn freeBundle(allocator: std.mem.Allocator, bundle: *graph.ObjectBundle) void {
+fn freeBundle(allocator: std.mem.Allocator, bundle: *graph.NodeBundle) void {
     allocator.free(bundle.id);
     for (bundle.files) |f| allocator.free(f.contents);
     for (bundle.files) |f| allocator.free(f.relative_path);
@@ -201,7 +201,7 @@ fn walkObjectDir(
     io: Io,
     abs_dir: []const u8,
     rel_base: []const u8,
-    out: *std.ArrayListUnmanaged(graph.ObjectFile),
+    out: *std.ArrayListUnmanaged(graph.NodeFile),
 ) !void {
     var dir = try cwdOpenObjects(io, abs_dir);
     defer dir.close(io);

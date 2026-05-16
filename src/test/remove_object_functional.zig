@@ -3,7 +3,7 @@
 const std = @import("std");
 const remove_object = @import("../app/remove_object.zig");
 const register = @import("../app/register.zig");
-const new_object = @import("../app/new_object.zig");
+const new_node = @import("../app/new_node.zig");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 
 fn initGitRepo(alloc: std.mem.Allocator, io: std.Io, repo_abs: []const u8) !void {
@@ -34,9 +34,9 @@ test "rm without git tombstones n only" {
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
     try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
-    try remove_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ-1");
+    try remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1");
 
     const obj_path = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-1" });
     defer alloc.free(obj_path);
@@ -47,7 +47,7 @@ test "rm without git tombstones n only" {
     try std.testing.expect(reg.isTombstoned("REQ", 1));
     try std.testing.expectEqual(@as(?[]const u8, null), reg.prefixes.items[0].tombstones.items[0].git_commit);
 
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
     const obj2 = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-2" });
     defer alloc.free(obj2);
     _ = try tmp.dir.statFile(std.testing.io, obj2, .{});
@@ -68,12 +68,12 @@ test "rm with git sets git_commit" {
 
     try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
     // Use markdown so git tracks a file (empty directories are not versioned).
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{ .markdown = true });
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{ .markdown = true });
 
     try runGit(alloc, std.testing.io, &.{ "git", "-C", repo_abs, "add", "-A" });
     try runGit(alloc, std.testing.io, &.{ "git", "-C", repo_abs, "commit", "-m", "init" });
 
-    try remove_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ-1");
+    try remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1");
 
     var reg = try fits_registry.Registry.load(alloc, std.testing.io, repo_abs, null);
     defer reg.deinit();
@@ -94,8 +94,8 @@ test "rm twice errors" {
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
     try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
-    try remove_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ-1");
-    try std.testing.expectError(error.AlreadyTombstoned, remove_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ-1"));
+    try remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1");
+    try std.testing.expectError(error.AlreadyTombstoned, remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1"));
 }

@@ -4,8 +4,9 @@ Optional subprocess hooks can run after built-in structural validators during `f
 
 ## Protocol
 
-- **Version:** JSON schemas [`schemas/hooks_request.schema.json`](../schemas/hooks_request.schema.json) and [`schemas/hooks_response.schema.json`](../schemas/hooks_response.schema.json); domain constant `protocol_version = 1` in code.
-- **Transport:** One batch per hook kind per validate run: an **objects** hook (optional) and a **links** hook (optional). The request includes a **bounded subgraph** of the repo graph (see schemas), not the full graph.
+- **Version:** JSON schemas [`schemas/hooks_request.schema.json`](../schemas/hooks_request.schema.json) and [`schemas/hooks_response.schema.json`](../schemas/hooks_response.schema.json); domain constant `protocol_version = 2` in code.
+- **Transport:** One batch per hook kind per validate run: a **nodes** hook (optional) and a **links** hook (optional). The request includes a **bounded subgraph** of the repo graph (see schemas), not the full graph.
+- **Terminology:** A graph **object** is either a **node** (dataset instance under `objects/`) or a **link** (row in `relations/links.jsonc`). The nodes hook validates node payloads; the links hook validates link rows.
 - **Extension point:** Schemas and docs reserve `extension_graph_api` for a future host-side graph query API (in-process or stdio RPC). Not available in the first delivery.
 
 ## Configuration (`.fits/hooks.toml`)
@@ -14,14 +15,15 @@ Create `.fits/hooks.toml` next to `fits_config.toml`. Example:
 
 ```toml
 enabled = true
-objects_command = ["my-hook", "objects"]
+nodes_command = ["my-hook", "nodes"]
 links_command = ["my-hook", "links"]
 max_request_bytes = 33554432
 timeout_secs = 120
 ```
 
 - **`enabled`:** Hooks run only if this is `true` **and** you pass **`--hooks`** on the CLI.
-- **`objects_command` / `links_command`:** JSON-array lines (same format as JSON array literals): full argv; first element is the executable.
+- **`nodes_command` / `links_command`:** JSON-array lines (same format as JSON array literals): full argv; first element is the executable.
+- **`objects_command`:** Legacy alias for **`nodes_command`** when `nodes_command` is omitted (same argv semantics as before v2 protocol rename).
 - **`max_request_bytes`:** Rejects oversized request bodies before spawning (default 32 MiB).
 - **`timeout_secs`:** Wall-clock I/O timeout for the child (`0` = host default / no bound).
 
@@ -34,15 +36,15 @@ fits validate --hooks --no-hooks-incremental
 ```
 
 - **`--hooks`:** Allow hooks to run when configured and enabled.
-- **`--hooks-full`:** Ignore incremental optimization: every object/link row is considered for hook payloads (still subject to `max_request_bytes`).
+- **`--hooks-full`:** Ignore incremental optimization: every graph object row relevant to hooks is considered for hook payloads (still subject to `max_request_bytes`).
 - **`--no-hooks-incremental`:** Disable fingerprint-based skipping (same as a full refresh for the cache).
 
 ## Incremental behavior
 
 When incremental mode is on (`--hooks` without `--hooks-full` or `--no-hooks-incremental`):
 
-1. **Fingerprints** (Wyhash over canonical object bytes and link row fields) are stored in the LatticeDB cache under keys `hooks:obj:<argv-hash>:<id>` and `hooks:link:...`. If the fingerprint matches the last successful run for that id, the entity is skipped for that hook.
-2. **Git narrowing** (when `.git` exists and `git diff HEAD --name-only` succeeds): only paths that appear in the diff are eligible. Object ids are taken from paths under `objects/<id>/`; link rows are filtered when `relations/links.jsonc` changes or paths under `relations/<link-id>/` change. If git is missing or the command fails, hooks fall back to fingerprint-only narrowing.
+1. **Fingerprints** (Wyhash over canonical node bundle bytes and link row fields) are stored in the LatticeDB cache under keys `hooks:node:<argv-hash>:<id>` and `hooks:link:...`. If the fingerprint matches the last successful run for that id, the entity is skipped for that hook.
+2. **Git narrowing** (when `.git` exists and `git diff HEAD --name-only` succeeds): only paths that appear in the diff are eligible. Node ids are taken from paths under `objects/<id>/`; link rows are filtered when `relations/links.jsonc` changes or paths under `relations/<link-id>/` change. If git is missing or the command fails, hooks fall back to fingerprint-only narrowing.
 
 After a hook exits successfully (`0`), fingerprints for the entities in that batch are updated.
 

@@ -3,7 +3,7 @@
 const std = @import("std");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const new_link = @import("../app/new_link.zig");
-const new_object = @import("../app/new_object.zig");
+const new_node = @import("../app/new_node.zig");
 const register = @import("../app/register.zig");
 
 test "new link appends links.jsonc row and consumes link id from registry" {
@@ -20,8 +20,8 @@ test "new link appends links.jsonc row and consumes link id from registry" {
     try register.runObjType(alloc, std.testing.io, repo_abs, "REQ", false);
     try register.runObjType(alloc, std.testing.io, repo_abs, "BUG", false);
     try register.runLinkType(alloc, std.testing.io, repo_abs, "refs", "REQ", "BUG", false);
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{});
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "BUG", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "BUG", .{});
 
     try new_link.run(alloc, std.testing.io, repo_abs, "refs", "REQ-1", "BUG-1");
 
@@ -52,8 +52,8 @@ test "new link fails for unknown link type" {
 
     try register.runObjType(alloc, std.testing.io, repo_abs, "REQ", false);
     try register.runObjType(alloc, std.testing.io, repo_abs, "BUG", false);
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{});
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "BUG", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "BUG", .{});
 
     try std.testing.expectError(error.UnknownLinkType, new_link.run(alloc, std.testing.io, repo_abs, "norefs", "REQ-1", "BUG-1"));
 }
@@ -72,8 +72,8 @@ test "new link rejects endpoints that do not match registry in/out prefixes" {
     try register.runObjType(alloc, std.testing.io, repo_abs, "REQ", false);
     try register.runObjType(alloc, std.testing.io, repo_abs, "BUG", false);
     try register.runLinkType(alloc, std.testing.io, repo_abs, "refs", "REQ", "BUG", false);
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "REQ", .{});
-    try new_object.run(alloc, std.testing.io, repo_abs, new_object.default_objects_dir, "BUG", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
+    try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "BUG", .{});
 
     try std.testing.expectError(error.LinkEndpointsMismatchRegistry, new_link.run(alloc, std.testing.io, repo_abs, "refs", "BUG-1", "REQ-1"));
 }

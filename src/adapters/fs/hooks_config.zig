@@ -9,8 +9,8 @@ const Dir = Io.Dir;
 pub const HooksConfig = struct {
     /// When true and argv slices are non-empty, hooks may run.
     enabled: bool = false,
-    /// Full argv for the object hook (`argv[0]` is the program).
-    objects_argv: []const []const u8 = &.{},
+    /// Full argv for the graph-node hook (`argv[0]` is the program).
+    nodes_argv: []const []const u8 = &.{},
     /// Full argv for the link hook.
     links_argv: []const []const u8 = &.{},
     max_request_bytes: usize = 32 * 1024 * 1024,
@@ -19,8 +19,8 @@ pub const HooksConfig = struct {
 
     /// Frees duplicated argv strings.
     pub fn deinit(self: *HooksConfig, allocator: std.mem.Allocator) void {
-        for (self.objects_argv) |s| allocator.free(s);
-        allocator.free(self.objects_argv);
+        for (self.nodes_argv) |s| allocator.free(s);
+        allocator.free(self.nodes_argv);
         for (self.links_argv) |s| allocator.free(s);
         allocator.free(self.links_argv);
         self.* = .{};
@@ -65,10 +65,17 @@ fn cwdOpen(io: Io, path: []const u8) Io.File.OpenError!Io.File {
 
 fn parseContents(allocator: std.mem.Allocator, raw: []const u8) !HooksConfig {
     var enabled: bool = false;
-    var objects_line: ?[]const u8 = null;
-    var links_line: ?[]const u8 = null;
+    var nodes_command_raw: ?[]const u8 = null;
+    var objects_command_raw: ?[]const u8 = null;
+    var links_command_raw: ?[]const u8 = null;
     var max_req: ?usize = null;
     var timeout_s: ?u64 = null;
+
+    defer {
+        if (nodes_command_raw) |p| allocator.free(p);
+        if (objects_command_raw) |p| allocator.free(p);
+        if (links_command_raw) |p| allocator.free(p);
+    }
 
     var lines = std.mem.splitScalar(u8, raw, '\n');
     while (lines.next()) |line| {
@@ -82,12 +89,19 @@ fn parseContents(allocator: std.mem.Allocator, raw: []const u8) !HooksConfig {
             enabled = std.mem.eql(u8, val, "true");
             continue;
         }
+        if (std.mem.eql(u8, key, "nodes_command")) {
+            if (nodes_command_raw) |p| allocator.free(p);
+            nodes_command_raw = try allocator.dupe(u8, val);
+            continue;
+        }
         if (std.mem.eql(u8, key, "objects_command")) {
-            objects_line = try allocator.dupe(u8, val);
+            if (objects_command_raw) |p| allocator.free(p);
+            objects_command_raw = try allocator.dupe(u8, val);
             continue;
         }
         if (std.mem.eql(u8, key, "links_command")) {
-            links_line = try allocator.dupe(u8, val);
+            if (links_command_raw) |p| allocator.free(p);
+            links_command_raw = try allocator.dupe(u8, val);
             continue;
         }
         if (std.mem.eql(u8, key, "max_request_bytes")) {
@@ -100,20 +114,17 @@ fn parseContents(allocator: std.mem.Allocator, raw: []const u8) !HooksConfig {
         }
     }
 
-    errdefer if (objects_line) |p| allocator.free(p);
-    errdefer if (links_line) |p| allocator.free(p);
+    const chosen_nodes_json = nodes_command_raw orelse objects_command_raw orelse "";
 
-    const obj_argv = try parseJsonStringArrayLine(allocator, objects_line orelse "");
-    errdefer freeArgv(allocator, obj_argv);
-    if (objects_line) |p| allocator.free(p);
+    const node_argv = try parseJsonStringArrayLine(allocator, chosen_nodes_json);
+    errdefer freeArgv(allocator, node_argv);
 
-    const lnk_argv = try parseJsonStringArrayLine(allocator, links_line orelse "");
+    const lnk_argv = try parseJsonStringArrayLine(allocator, links_command_raw orelse "");
     errdefer freeArgv(allocator, lnk_argv);
-    if (links_line) |p| allocator.free(p);
 
     return .{
         .enabled = enabled,
-        .objects_argv = obj_argv,
+        .nodes_argv = node_argv,
         .links_argv = lnk_argv,
         .max_request_bytes = max_req orelse (32 * 1024 * 1024),
         .timeout_ns = (timeout_s orelse 0) * std.time.ns_per_s,

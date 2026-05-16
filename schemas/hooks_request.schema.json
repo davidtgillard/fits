@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fits.local/schemas/hooks_request.schema.json",
   "title": "fits hook request (stdin JSON)",
-  "description": "Single JSON message sent to object/link validation hooks. graph is a bounded subgraph; extension_graph_api for future full-graph access is documented in docs/fits_hooks.md.",
+  "description": "Single JSON message sent to node/link validation hooks. graph is a bounded subgraph; extension_graph_api for future full-graph access is documented in docs/fits_hooks.md. A graph **object** is either a **node** or a **link**; `work.nodes` carries node instances.",
   "type": "object",
   "additionalProperties": false,
   "required": ["protocol_version", "run", "registry", "graph", "work"],
   "properties": {
-    "protocol_version": { "type": "integer", "const": 1 },
+    "protocol_version": { "type": "integer", "const": 2 },
     "extension_graph_api": {
       "type": "string",
       "description": "Reserved: documents future optional full-graph API for hooks."
@@ -62,9 +62,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "objects": {
+        "nodes": {
           "type": "array",
-          "items": { "$ref": "#/$defs/workObject" }
+          "items": { "$ref": "#/$defs/workNode" }
         },
         "links": {
           "type": "array",
@@ -84,7 +84,7 @@
         "content": { "type": "string" }
       }
     },
-    "workObject": {
+    "workNode": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "files"],

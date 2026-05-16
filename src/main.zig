@@ -1,4 +1,4 @@
-//! fits CLI: dispatches subcommands and wires adapters to validate and object-creation flows.
+//! fits CLI: dispatches subcommands and wires adapters to validate and graph-object lifecycle flows (nodes and links).
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -14,7 +14,7 @@ const validation = @import("domain/validation.zig");
 const use_case_mod = @import("app/validate_use_case.zig");
 const report_mod = @import("output/report.zig");
 const new_link_mod = @import("app/new_link.zig");
-const new_object_mod = @import("app/new_object.zig");
+const new_node_mod = @import("app/new_node.zig");
 const register_mod = @import("app/register.zig");
 const remove_object_mod = @import("app/remove_object.zig");
 const update_mod = @import("app/update.zig");
@@ -145,7 +145,7 @@ fn runValidate(allocator: std.mem.Allocator, io: std.Io, environ: *const std.pro
     const prefixes = try reg.objPrefixSlice(allocator);
     defer allocator.free(prefixes);
 
-    const bundles = try loader.loadObjectBundles(allocator, io, ".", "objects", prefixes);
+    const bundles = try loader.loadNodeBundles(allocator, io, ".", "objects", prefixes);
     defer allocator.free(bundles);
 
     var hook_snapshot_builder = graph_builder_mod.DeterministicGraphBuilder{};
@@ -362,7 +362,7 @@ fn printRegisterUsage() void {
     , .{});
 }
 
-// Parses `fits new` argv and delegates to [`new_object_mod.run`] or [`new_link_mod.run`].
+// Parses `fits new` argv and delegates to [`new_node_mod.run`] or [`new_link_mod.run`].
 fn runNew(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
     const first = args.next() orelse {
         printUsage();
@@ -418,7 +418,7 @@ fn runNew(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
         }
     }
 
-    try new_object_mod.run(allocator, io, new_object_mod.default_repo_root, new_object_mod.default_objects_dir, obj_prefix, .{
+    try new_node_mod.run(allocator, io, new_node_mod.default_repo_root, new_node_mod.default_objects_dir, obj_prefix, .{
         .markdown = markdown,
         .title_words = title_words.items,
     });
@@ -614,12 +614,12 @@ test {
     _ = @import("adapters/github/release.zig");
     _ = @import("app/update.zig");
     _ = @import("app/new_link.zig");
-    _ = @import("app/new_object.zig");
+    _ = @import("app/new_node.zig");
     _ = @import("app/register.zig");
     _ = @import("app/init_repo.zig");
     _ = @import("test/fits_registry_functional.zig");
     _ = @import("test/new_link_functional.zig");
-    _ = @import("test/new_object_functional.zig");
+    _ = @import("test/new_node_functional.zig");
     _ = @import("test/register_functional.zig");
     _ = @import("test/links_functional.zig");
     _ = @import("test/remove_object_functional.zig");

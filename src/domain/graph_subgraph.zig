@@ -7,16 +7,16 @@ const graph = @import("graph.zig");
 
 /// Host-enforced limits on subgraph size in hook requests.
 pub const SubgraphCaps = struct {
-    /// Maximum distinct object ids in the result `nodes` slice.
+    /// Maximum distinct node ids in the result `nodes` slice.
     max_nodes: usize = 10_000,
     /// Maximum edges in the result `edges` slice.
     max_edges: usize = 100_000,
 };
 
-/// Seeded by hook `work`: object ids and link endpoint ids to anchor the neighborhood.
+/// Seeded by hook `work`: node ids and link endpoint ids to anchor the neighborhood.
 pub const SubgraphSeeds = struct {
-    /// Object instance ids (e.g. from `work.objects`).
-    object_ids: []const []const u8,
+    /// Node instance ids (e.g. from `work.nodes` in hook protocol v2).
+    node_ids: []const []const u8,
     /// Additional ids to treat as seeds (e.g. link `out` / `in` endpoints).
     extra_ids: []const []const u8,
 };
@@ -32,7 +32,7 @@ pub const ExtractError = error{
 /// Parameters:
 /// - `allocator`: Allocates output `nodes` and `edges` slices; does not duplicate string bytes inside [`GraphSnapshot`](graph.zig) (aliases snapshot ids).
 /// - `snapshot`: Full graph built by the host (same source of truth as validate).
-/// - `seeds`: union of work object ids and link endpoint ids for this batch.
+/// - `seeds`: union of work node ids and link endpoint ids for this batch.
 /// - `caps`: hard limits; exceed → [`error.SubgraphTooLarge`].
 ///
 /// Returns: a new [`graph.GraphSnapshot`] referencing the same underlying id bytes as `snapshot`.
@@ -44,7 +44,7 @@ pub fn extractIncidentSubgraph(
 ) ExtractError!graph.GraphSnapshot {
     var seed_set = std.StringHashMap(void).init(allocator);
     defer seed_set.deinit();
-    for (seeds.object_ids) |id| try seed_set.put(id, {});
+    for (seeds.node_ids) |id| try seed_set.put(id, {});
     for (seeds.extra_ids) |id| try seed_set.put(id, {});
 
     var edge_pick = std.ArrayListUnmanaged(usize).empty;
@@ -61,7 +61,7 @@ pub fn extractIncidentSubgraph(
 
     var node_set = std.StringHashMap(void).init(allocator);
     defer node_set.deinit();
-    for (seeds.object_ids) |id| try node_set.put(id, {});
+    for (seeds.node_ids) |id| try node_set.put(id, {});
     for (seeds.extra_ids) |id| try node_set.put(id, {});
 
     for (edge_pick.items) |ei| {
@@ -139,7 +139,7 @@ test "incident subgraph one hop" {
     defer snap.deinit(alloc);
 
     const seeds: SubgraphSeeds = .{
-        .object_ids = &.{"A-1"},
+        .node_ids = &.{"A-1"},
         .extra_ids = &.{},
     };
 

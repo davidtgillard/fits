@@ -5,7 +5,7 @@ const std = @import("std");
 const validation = @import("validation.zig");
 
 /// Current hook request/response protocol version. Bump when JSON shape changes.
-pub const protocol_version: u32 = 1;
+pub const protocol_version: u32 = 2;
 
 /// Field reserved in schemas/docs for a future full-graph query API (hooks call the same model).
 pub const extension_graph_api_placeholder = "future: in-process or stdio RPC over graph_access API";
@@ -22,7 +22,7 @@ pub const FileEncoding = enum {
     }
 };
 
-/// One file inside an object or link folder for hook payloads.
+/// One file inside a node or link folder for hook payloads.
 pub const HookFileEntry = struct {
     relative_path: []const u8,
     encoding: FileEncoding,
@@ -30,8 +30,8 @@ pub const HookFileEntry = struct {
     content: []const u8,
 };
 
-/// One object in the hook `work` batch.
-pub const HookWorkObject = struct {
+/// One graph node in the hook `work.nodes` batch.
+pub const HookWorkNode = struct {
     id: []const u8,
     files: []const HookFileEntry,
 };
@@ -168,15 +168,15 @@ pub fn appendFindingsFromHookResponseJson(
         return;
     }
 
-    if (obj.get("objects")) |ov| {
-        try appendScopeFindings(allocator, .object, ov, "hook.object.invalid", findings);
+    if (obj.get("nodes")) |nv| {
+        try appendScopeFindings(allocator, .node, nv, "hook.node.invalid", findings);
     }
     if (obj.get("links")) |lv| {
         try appendScopeFindings(allocator, .link, lv, "hook.link.invalid", findings);
     }
 }
 
-const Scope = enum { object, link };
+const Scope = enum { node, link };
 
 fn appendScopeFindings(
     allocator: std.mem.Allocator,
@@ -220,7 +220,7 @@ fn appendScopeFindings(
 
         const errs = row.get("errors") orelse {
             const msg = switch (scope) {
-                .object => try std.fmt.allocPrint(allocator, "hook object {s}: invalid but errors missing", .{id}),
+                .node => try std.fmt.allocPrint(allocator, "hook node {s}: invalid but errors missing", .{id}),
                 .link => try std.fmt.allocPrint(allocator, "hook link {s}: invalid but errors missing", .{id}),
             };
             errdefer allocator.free(msg);
@@ -236,7 +236,7 @@ fn appendScopeFindings(
             .array => |e| e,
             else => {
                 const msg = switch (scope) {
-                    .object => try std.fmt.allocPrint(allocator, "hook object {s}: errors not an array", .{id}),
+                    .node => try std.fmt.allocPrint(allocator, "hook node {s}: errors not an array", .{id}),
                     .link => try std.fmt.allocPrint(allocator, "hook link {s}: errors not an array", .{id}),
                 };
                 errdefer allocator.free(msg);
@@ -266,7 +266,7 @@ fn appendScopeFindings(
                 else => "(no message)",
             };
             const msg = switch (scope) {
-                .object => try std.fmt.allocPrint(allocator, "{s} [{s}]: {s}", .{ id, code, base }),
+                .node => try std.fmt.allocPrint(allocator, "{s} [{s}]: {s}", .{ id, code, base }),
                 .link => try std.fmt.allocPrint(allocator, "link {s} [{s}]: {s}", .{ id, code, base }),
             };
             errdefer allocator.free(msg);
@@ -280,10 +280,10 @@ fn appendScopeFindings(
     }
 }
 
-test "hook response invalid object" {
+test "hook response invalid node" {
     const alloc = std.testing.allocator;
     const body =
-        \\{"protocol_version":1,"objects":[{"id":"O1","status":"invalid","errors":[{"code":"x","message":"bad"}]}]}
+        \\{"protocol_version":2,"nodes":[{"id":"O1","status":"invalid","errors":[{"code":"x","message":"bad"}]}]}
     ;
     var findings: std.ArrayListUnmanaged(validation.Finding) = .empty;
     defer {
@@ -292,5 +292,5 @@ test "hook response invalid object" {
     }
     try appendFindingsFromHookResponseJson(alloc, body, "testhook", &findings);
     try std.testing.expectEqual(@as(usize, 1), findings.items.len);
-    try std.testing.expectEqualStrings("hook.object.invalid", findings.items[0].code);
+    try std.testing.expectEqualStrings("hook.node.invalid", findings.items[0].code);
 }

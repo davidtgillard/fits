@@ -1,4 +1,4 @@
-//! CLI use-case: remove an object instance or a link instance, tombstone ids, and optionally record removal in VCS.
+//! CLI use-case: remove a graph **object** (a **node** under `objects/` or a **link** row), tombstone ids, and optionally record removal in VCS.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -7,13 +7,13 @@ const objects_dir = @import("../adapters/fs/objects_dir.zig");
 const git_removal = @import("../adapters/git/removal.zig");
 const instance_id = @import("../domain/instance_id.zig");
 const vcs_removal = @import("../domain/vcs_removal.zig");
-const new_object = @import("new_object.zig");
+const new_node = @import("new_node.zig");
 const remove_link = @import("remove_link.zig");
 
-pub const default_repo_root: []const u8 = new_object.default_repo_root;
-pub const default_objects_dir: []const u8 = new_object.default_objects_dir;
+pub const default_repo_root: []const u8 = new_node.default_repo_root;
+pub const default_objects_dir: []const u8 = new_node.default_objects_dir;
 
-/// Removes object or link `id_arg` after disambiguation (object prefixes are tried before link types).
+/// Removes graph object `id_arg` after disambiguation (node-type prefixes are tried before link types).
 pub fn run(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -33,11 +33,11 @@ pub fn run(
 
     switch (target_inst) {
         .link => return remove_link.run(allocator, io, repo_root, id_arg),
-        .obj => try runRemoveObjectOnly(allocator, io, repo_root, objects_rel, id_arg, &reg),
+        .node => try runRemoveNodeOnly(allocator, io, repo_root, objects_rel, id_arg, &reg),
     }
 }
 
-fn runRemoveObjectOnly(
+fn runRemoveNodeOnly(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
@@ -48,8 +48,8 @@ fn runRemoveObjectOnly(
     const prefix_slice = try reg.objPrefixSlice(allocator);
     defer allocator.free(prefix_slice);
 
-    const parsed = instance_id.parseObjName(obj_name, prefix_slice) orelse return error.InvalidObjName;
-    const obj_prefix = parsed.obj_prefix;
+    const parsed = instance_id.parseNodeName(obj_name, prefix_slice) orelse return error.InvalidObjName;
+    const obj_prefix = parsed.node_prefix;
     const n = parsed.n;
 
     const next_val = reg.nextForObjPrefix(obj_prefix) orelse return error.UnknownObjPrefix;
