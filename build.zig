@@ -25,7 +25,15 @@ pub fn build(b: *std.Build) void {
         .name = "fits",
         .root_module = root_module,
     });
-    b.installArtifact(exe);
+    if (optimize == .Debug) {
+        b.installArtifact(exe);
+    } else {
+        // Drop DWARF (.debug_*) from the installed binary; keep .symtab for backtraces.
+        const strip_debug = b.addSystemCommand(&.{ "strip", "--strip-debug" });
+        const stripped = strip_debug.addPrefixedOutputFileArg("-o", exe.name);
+        strip_debug.addFileArg(exe.getEmittedBin());
+        b.getInstallStep().dependOn(&b.addInstallBinFile(stripped, exe.name).step);
+    }
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
