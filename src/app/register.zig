@@ -1,4 +1,4 @@
-//! CLI use-cases for `fits register`: **node type** prefixes (CLI `obj-type`; stored as object prefixes in `.fits/registry.json`) and link types, plus link index rewrites when renaming link types.
+//! CLI use-cases for `fits register`: **node type** prefixes (CLI `node-type`; stored as `obj_prefix` entries in `.fits/registry.json`) and link types, plus link index rewrites when renaming link types.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -13,23 +13,23 @@ pub const default_repo_root: []const u8 = new_node.default_repo_root;
 /// Default objects directory name under the repository root.
 pub const default_objects_dir: []const u8 = new_node.default_objects_dir;
 
-/// Registers a new object type prefix in the registry.
+/// Registers a new node type prefix in the registry.
 ///
-/// Deprecated: use [`runObjType`] via `fits register obj-type`.
+/// Deprecated: use [`runNodeType`] via `fits register node-type`.
 pub fn runNew(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
-    obj_prefix: []const u8,
+    node_prefix: []const u8,
 ) !void {
     if (!builtin.is_test) {
-        std.debug.print("warning: `fits register new` is deprecated; use `fits register obj-type {s}`\n", .{obj_prefix});
+        std.debug.print("warning: `fits register new` is deprecated; use `fits register node-type {s}`\n", .{node_prefix});
     }
-    return runObjType(allocator, io, repo_root, obj_prefix, false);
+    return runNodeType(allocator, io, repo_root, node_prefix, false);
 }
 
-/// Registers an object type prefix; optionally records `create_folder` preference in `.fits/fits_config.toml`.
-pub fn runObjType(
+/// Registers a node type prefix; optionally records `create_folder` preference in `.fits/fits_config.toml`.
+pub fn runNodeType(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
@@ -48,8 +48,11 @@ pub fn runObjType(
         try fits_config.mergeRepoObjTypeCreateFolder(allocator, io, repo_root, obj_prefix, true);
     }
 
-    if (!builtin.is_test) std.debug.print("Registered object type {s}\n", .{obj_prefix});
+    if (!builtin.is_test) std.debug.print("Registered node type {s}\n", .{obj_prefix});
 }
+
+/// Deprecated alias for [`runNodeType`].
+pub const runObjType = runNodeType;
 
 /// Registers a link type from `out_obj_prefix` → `in_obj_prefix` instances (`OUT` points to `IN`).
 pub fn runLinkType(
@@ -84,7 +87,7 @@ pub fn runLinkType(
     }
 }
 
-/// Lists object types only (tab-separated: prefix, next).
+/// Lists node types only (tab-separated: prefix, next).
 ///
 /// Parameters:
 /// - `allocator`: Used for registry load and sort buffer.
@@ -92,7 +95,7 @@ pub fn runLinkType(
 /// - `repo_root`: Repository root containing `.fits/`.
 ///
 /// Returns: nothing on success, or registry I/O / JSON errors.
-pub fn runListObjTypes(
+pub fn runListNodeTypes(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
@@ -155,7 +158,7 @@ pub fn runListLinkTypes(
     }
 }
 
-/// Lists object types, then link types (with section headers on stdout).
+/// Lists node types, then link types (with section headers on stdout).
 ///
 /// Parameters:
 /// - `allocator`: Used for registry load.
@@ -168,13 +171,13 @@ pub fn runListAll(
     io: std.Io,
     repo_root: []const u8,
 ) !void {
-    if (!builtin.is_test) std.debug.print("# object types (prefix\tnext)\n", .{});
-    try runListObjTypes(allocator, io, repo_root);
+    if (!builtin.is_test) std.debug.print("# node types (prefix\tnext)\n", .{});
+    try runListNodeTypes(allocator, io, repo_root);
     if (!builtin.is_test) std.debug.print("# link types (link_type\tin\tout\tnext)\n", .{});
     try runListLinkTypes(allocator, io, repo_root);
 }
 
-/// Lists object types then link types (delegates to [`runListAll`]).
+/// Lists node types then link types (delegates to [`runListAll`]).
 ///
 /// Parameters:
 /// - `allocator`: Used for registry load.
@@ -190,7 +193,7 @@ pub fn runList(
     return runListAll(allocator, io, repo_root);
 }
 
-/// Renames an object type or link type; object renames also relocate `objects/` instances.
+/// Renames a node type or link type; node renames also relocate `objects/` instances.
 ///
 /// Deprecated: use [`runRenameType`].
 pub fn runRename(
@@ -207,9 +210,9 @@ pub fn runRename(
     return runRenameType(allocator, io, repo_root, objects_rel, old_prefix, new_prefix);
 }
 
-/// Renames a registered object prefix or link type.
+/// Renames a registered node-type prefix or link type.
 ///
-/// Object renames relocate issued instances under `objects/` and update `fits_config.toml` keys.
+/// Node renames relocate issued instances under `objects/` and update `fits_config.toml` keys.
 /// Link renames rewrite `relations/links.jsonc` rows and optional `relations/<id>/` folders.
 ///
 /// Parameters:
@@ -220,7 +223,7 @@ pub fn runRename(
 /// - `old_name`: Current prefix or link type name.
 /// - `new_name`: Target name (must pass prefix validation).
 ///
-/// Returns: `error.UnknownRenameTarget` when neither an object prefix nor link type matches `old_name`.
+/// Returns: `error.UnknownRenameTarget` when neither a node-type prefix nor link type matches `old_name`.
 pub fn runRenameType(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -241,7 +244,7 @@ pub fn runRenameType(
         try renameManagedInstances(allocator, io, repo_root, objects_rel, old_name, new_name, old_next);
         try reg.save(io, repo_root);
         try fits_config.renameRepoObjTypeCreateFolderKey(allocator, io, repo_root, old_name, new_name);
-        if (!builtin.is_test) std.debug.print("Renamed object type {s} -> {s}\n", .{ old_name, new_name });
+        if (!builtin.is_test) std.debug.print("Renamed node type {s} -> {s}\n", .{ old_name, new_name });
         return;
     }
 
@@ -358,7 +361,7 @@ fn pathExists(cwd: std.Io.Dir, io: std.Io, path: []const u8) bool {
 /// Parses the numeric suffix from a basename like `REQ-1` or `REQ-3 Login flow.md`.
 ///
 /// Parameters:
-/// - `obj_prefix`: Expected object type prefix.
+/// - `obj_prefix`: Expected node type prefix.
 /// - `basename`: File or directory name under `objects/`.
 ///
 /// Returns: the numeric suffix, or `null` if the name does not match the instance pattern.

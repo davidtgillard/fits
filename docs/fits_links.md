@@ -9,7 +9,7 @@
 ## Direction and CLI order
 
 - **Semantics:** `out` → `in` (the `out` endpoint is the source of the edge; the `in` endpoint is the target).
-- **Registration:** `fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE>`  
+- **Registration:** `fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE>`  
   So the first node-type prefix after `LINK_TYPE` is the **in** endpoint’s prefix, and the second is the **out** endpoint’s prefix.
 
 ## Files and ownership

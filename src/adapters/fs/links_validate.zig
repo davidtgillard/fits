@@ -546,15 +546,15 @@ fn validateIssuedObj(
     defer report.allocator.free(fp);
 
     const next_o = registry.nextForObjPrefix(obj_prefix) orelse {
-        pushIssueStatic(report, fp, "unknown object prefix");
+        pushIssueStatic(report, fp, "unknown node prefix");
         return;
     };
     if (n == 0 or n >= next_o) {
-        pushIssueStatic(report, fp, "object id is not in issued range");
+        pushIssueStatic(report, fp, "node id is not in issued range");
         return;
     }
     if (registry.isTombstoned(obj_prefix, n)) {
-        pushIssueStatic(report, fp, "object id is tombstoned");
+        pushIssueStatic(report, fp, "node id is tombstoned");
     }
 }
 

@@ -313,15 +313,15 @@ fn printUsage() void {
         \\Usage:
         \\  fits init
         \\  fits validate [--hooks] [--hooks-full] [--no-hooks-incremental]
-        \\  fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
+        \\  fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
         \\  fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
-        \\  fits register obj-type <OBJ_PREFIX> [--create-folder]
-        \\  fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE> [--create-folder]
-        \\  fits register list [obj-types|link-types]
+        \\  fits register node-type <NODE_PREFIX> [--create-folder]
+        \\  fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]
+        \\  fits register list [node-types|link-types]
         \\  fits register rename-type <OLD> <NEW>
-        \\  fits register new <OBJ_PREFIX>   (deprecated)
+        \\  fits register new <NODE_PREFIX>   (deprecated)
         \\  fits register rename <OLD> <NEW>   (deprecated)
-        \\  fits rm <OBJ_ID or LINK_ID>
+        \\  fits rm <NODE_ID or LINK_ID>
         \\  fits update [--check]
         \\  fits version
         \\
@@ -338,7 +338,7 @@ fn printUpdateUsage() void {
 
 // Parses `fits rm` argv and delegates to [`remove_object_mod.run`].
 fn runRm(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
-    const obj_name = args.next() orelse {
+    const id_arg = args.next() orelse {
         printUsage();
         return error.InvalidArgv;
     };
@@ -346,17 +346,17 @@ fn runRm(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
         printUsage();
         return error.InvalidArgv;
     }
-    try remove_object_mod.run(allocator, io, remove_object_mod.default_repo_root, remove_object_mod.default_objects_dir, obj_name);
+    try remove_object_mod.run(allocator, io, remove_object_mod.default_repo_root, remove_object_mod.default_objects_dir, id_arg);
 }
 
 fn printRegisterUsage() void {
     std.debug.print(
         \\Usage:
-        \\  fits register obj-type <OBJ_PREFIX> [--create-folder]
-        \\  fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE> [--create-folder]
-        \\  fits register list [obj-types|link-types]
+        \\  fits register node-type <NODE_PREFIX> [--create-folder]
+        \\  fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]
+        \\  fits register list [node-types|link-types]
         \\  fits register rename-type <OLD> <NEW>
-        \\  fits register new <OBJ_PREFIX>   (deprecated)
+        \\  fits register new <NODE_PREFIX>   (deprecated)
         \\  fits register rename <OLD> <NEW>   (deprecated)
         \\
     , .{});
@@ -390,7 +390,15 @@ fn runNew(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
         return;
     }
 
-    const obj_prefix = first;
+    if (!std.mem.eql(u8, first, "node")) {
+        printUsage();
+        return error.InvalidArgv;
+    }
+
+    const node_prefix = args.next() orelse {
+        printUsage();
+        return error.InvalidArgv;
+    };
 
     var markdown = false;
     var title_words: std.ArrayList([]const u8) = .empty;
@@ -418,7 +426,7 @@ fn runNew(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
         }
     }
 
-    try new_node_mod.run(allocator, io, new_node_mod.default_repo_root, new_node_mod.default_objects_dir, obj_prefix, .{
+    try new_node_mod.run(allocator, io, new_node_mod.default_repo_root, new_node_mod.default_objects_dir, node_prefix, .{
         .markdown = markdown,
         .title_words = title_words.items,
     });
@@ -432,7 +440,7 @@ fn runRegister(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
     };
 
     if (std.mem.eql(u8, sub, "new")) {
-        const obj_prefix = args.next() orelse {
+        const node_prefix = args.next() orelse {
             printRegisterUsage();
             return error.InvalidArgv;
         };
@@ -440,11 +448,14 @@ fn runRegister(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
             printRegisterUsage();
             return error.InvalidArgv;
         }
-        try register_mod.runNew(allocator, io, register_mod.default_repo_root, obj_prefix);
+        try register_mod.runNew(allocator, io, register_mod.default_repo_root, node_prefix);
         return;
     }
 
-    if (std.mem.eql(u8, sub, "obj-type")) {
+    if (std.mem.eql(u8, sub, "node-type") or std.mem.eql(u8, sub, "obj-type")) {
+        if (std.mem.eql(u8, sub, "obj-type") and !builtin.is_test) {
+            std.debug.print("warning: `fits register obj-type` is deprecated; use `fits register node-type`\n", .{});
+        }
         var create_folder = false;
         var prefix: ?[]const u8 = null;
         while (args.next()) |arg| {
@@ -462,7 +473,7 @@ fn runRegister(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
             printRegisterUsage();
             return error.InvalidArgv;
         };
-        try register_mod.runObjType(allocator, io, register_mod.default_repo_root, p, create_folder);
+        try register_mod.runNodeType(allocator, io, register_mod.default_repo_root, p, create_folder);
         return;
     }
 
@@ -513,8 +524,11 @@ fn runRegister(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
             printRegisterUsage();
             return error.InvalidArgv;
         }
-        if (std.mem.eql(u8, filter.?, "obj-types")) {
-            try register_mod.runListObjTypes(allocator, io, register_mod.default_repo_root);
+        if (std.mem.eql(u8, filter.?, "node-types") or std.mem.eql(u8, filter.?, "obj-types")) {
+            if (std.mem.eql(u8, filter.?, "obj-types") and !builtin.is_test) {
+                std.debug.print("warning: `fits register list obj-types` is deprecated; use `fits register list node-types`\n", .{});
+            }
+            try register_mod.runListNodeTypes(allocator, io, register_mod.default_repo_root);
             return;
         }
         if (std.mem.eql(u8, filter.?, "link-types")) {

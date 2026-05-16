@@ -24,7 +24,7 @@ Every registry file is a single JSON object:
 | `description` | Canonical notice (purpose and “do not edit by hand”; written by the CLI) |
 | `version` | `1` |
 | `kind` | `"fits-registry-v1"` |
-| `prefixes` | array of object prefix entries |
+| `prefixes` | array of node-type prefix entries |
 | `link_types` | optional array of link type entries (omitted or `[]` in older repos) |
 
 Example envelope:
@@ -50,10 +50,10 @@ Example envelope:
 }
 ```
 
-- `link_type`: name of the link relation (same character rules as object prefixes; must not collide with any `obj_prefix`).
-- `in_obj_prefix` / `out_obj_prefix`: registered object prefixes. Instances link **from** `out` objects **to** `in` objects (see [fits_links.md](fits_links.md)).
+- `link_type`: name of the link relation (same character rules as node-type prefixes; must not collide with any `obj_prefix`).
+- `in_obj_prefix` / `out_obj_prefix`: registered node-type prefixes. Instances link **from** the `out` node **to** the `in` node (see [fits_links.md](fits_links.md)).
 - `next`: next numeric suffix for this link type (same interpretation as `prefixes[].next`).
-- `tombstones`: optional, same shape as for object prefixes.
+- `tombstones`: optional, same shape as for node-type prefixes.
 
 ## Prefix entries
 
@@ -68,7 +68,7 @@ Example envelope:
 }
 ```
 
-- `obj_prefix`: object type prefix (ASCII letter, then letters, digits, or `_`).
+- `obj_prefix`: node type prefix (ASCII letter, then letters, digits, or `_`).
 - `next`: next numeric suffix to allocate (integer ≥ 1). Issued ids are `1 .. next-1`.
 - `tombstones`: optional array (may be omitted; treated as empty). Each tombstone has required `n` (integer ≥ 1) and optional `git_commit` (40 hexadecimal characters). JSON `null` for `git_commit` is accepted when present (as emitted by the CLI writer).
 

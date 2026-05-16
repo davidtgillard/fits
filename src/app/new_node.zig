@@ -1,6 +1,6 @@
 //! CLI use-case: create a new graph node under `objects/` using the machine-owned registry.
 //! IDs are never reused after deletion: counters in `.fits/registry.json` only increase.
-//! The node type prefix must be registered first via `fits register obj-type`.
+//! The node type prefix must be registered first via `fits register node-type`.
 //!
 //! **Terminology:** a **node** is a versioned dataset instance; an **object** is any graph member (node or link).
 

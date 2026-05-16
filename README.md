@@ -28,14 +28,14 @@ Invoke `fits` with a subcommand. If you omit the subcommand or pass an unknown o
 Usage:
   fits init
   fits validate [--hooks] [--hooks-full] [--no-hooks-incremental]
-  fits new <OBJ_PREFIX> [--markdown] [-- <TITLE WORDS...>]
+  fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
   fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
-  fits rm <OBJ_ID or LINK_ID>
-  fits register obj-type <OBJ_PREFIX> [--create-folder]
-  fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE> [--create-folder]
-  fits register list [obj-types|link-types]
+  fits rm <NODE_ID or LINK_ID>
+  fits register node-type <NODE_PREFIX> [--create-folder]
+  fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]
+  fits register list [node-types|link-types]
   fits register rename-type <OLD> <NEW>
-  fits register new <OBJ_PREFIX>   (deprecated)
+  fits register new <NODE_PREFIX>   (deprecated)
   fits register rename <OLD> <NEW>   (deprecated)
   fits update [--check]
   fits version
@@ -64,36 +64,36 @@ fits validate --hooks
 
 ### `fits register`
 
-Manages **node type prefixes** (CLI: `obj-type`) and **link types** in `.fits/registry.json`. Node types must be registered before `fits new`; link types must be registered before `fits new link` or before you add matching rows to `relations/links.jsonc` by hand.
+Manages **node type prefixes** and **link types** in `.fits/registry.json`. Node types must be registered before `fits new node`; link types must be registered before `fits new link` or before you add matching rows to `relations/links.jsonc` by hand.
 
 The registry format is defined by [`schemas/registry.schema.json`](schemas/registry.schema.json). **Do not edit `.fits/registry.json` by hand.** Field-level detail: [`docs/fits_registry.md`](docs/fits_registry.md). Directed links and `relations/links.jsonc`: [`docs/fits_links.md`](docs/fits_links.md).
 
-#### `fits register obj-type <OBJ_PREFIX> [--create-folder]`
+#### `fits register node-type <NODE_PREFIX> [--create-folder]`
 
-Registers a node type (stored as an object-type prefix in the registry). With `--create-folder`, `fits` records `create_folder = true` under `[obj_types.<PREFIX>]` in `.fits/fits_config.toml` (merged without clobbering other keys).
+Registers a node type (stored as an `obj_prefix` entry in the registry). With `--create-folder`, `fits` records `create_folder = true` under `[obj_types.<PREFIX>]` in `.fits/fits_config.toml` (merged without clobbering other keys).
 
 ```sh
-fits register obj-type REQ
-fits register obj-type SPEC --create-folder
+fits register node-type REQ
+fits register node-type SPEC --create-folder
 ```
 
-#### `fits register link-type <LINK_TYPE> <IN_OBJ_TYPE> <OUT_OBJ_TYPE> [--create-folder]`
+#### `fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]`
 
-Registers a link type: links go **from** `OUT_OBJ_TYPE` node instances **to** `IN_OBJ_TYPE` node instances. Both node-type prefixes must already exist. `--create-folder` sets `[link_types.<LINK_TYPE>] create_folder = true` in `.fits/fits_config.toml`.
+Registers a link type: links go **from** `OUT_NODE_TYPE` node instances **to** `IN_NODE_TYPE` node instances. Both node-type prefixes must already exist. `--create-folder` sets `[link_types.<LINK_TYPE>] create_folder = true` in `.fits/fits_config.toml`.
 
 ```sh
-fits register obj-type REQ
-fits register obj-type DOC
+fits register node-type REQ
+fits register node-type DOC
 fits register link-type implements REQ DOC --create-folder
 ```
 
-#### `fits register list [obj-types|link-types]`
+#### `fits register list [node-types|link-types]`
 
-With no argument, prints a short header and **both** node and link types. Use `obj-types` or `link-types` to filter.
+With no argument, prints a short header and **both** node and link types. Use `node-types` or `link-types` to filter.
 
 ```sh
 fits register list
-fits register list obj-types
+fits register list node-types
 ```
 
 #### `fits register rename-type <OLD> <NEW>`
@@ -106,12 +106,15 @@ fits register rename-type REQ FOO
 
 #### Deprecated commands
 
-- `fits register new <OBJ_PREFIX>` → use `fits register obj-type`.
+- `fits register new <NODE_PREFIX>` → use `fits register node-type`.
+- `fits register obj-type` / `fits register list obj-types` → use `node-type` / `node-types`.
 - `fits register rename ...` → use `fits register rename-type`.
 
 ### `fits new`
 
-Creates a new **node** under `objects/` using the registry. Each node gets an id of the form `{OBJ_PREFIX}-{n}`, where `n` is a monotonically increasing counter for that prefix (ids are not reused after tombstoning). The node type must already be registered.
+#### `fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]`
+
+Creates a new **node** under `objects/` using the registry. Each node gets an id of the form `{NODE_PREFIX}-{n}`, where `n` is a monotonically increasing counter for that prefix (ids are not reused after tombstoning). The node type must already be registered.
 
 - **Layout vs config:** When `--markdown` is not passed, `fits` reads `.fits/fits_config.toml` for `[obj_types.<PREFIX>] create_folder`. If the key is **missing**, behavior matches older releases: an **empty directory** node. If `create_folder = false`, a **Markdown file** is created instead; if `true`, a **directory** is created. `--markdown` always forces a Markdown file.
 - **`--markdown`**: Force a Markdown file in the new node path.
@@ -122,15 +125,15 @@ Creates a new **node** under `objects/` using the registry. Each node gets an id
 Examples:
 
 ```sh
-fits register obj-type REQ
-fits new REQ
-fits new REQ --markdown
-fits new REQ --markdown -- User login flow
+fits register node-type REQ
+fits new node REQ
+fits new node REQ --markdown
+fits new node REQ --markdown -- User login flow
 
-fits register obj-type DOC
+fits register node-type DOC
 fits register link-type implements REQ DOC
-fits new REQ
-fits new DOC
+fits new node REQ
+fits new node DOC
 fits new link implements REQ-1 DOC-1
 ```
 
@@ -149,10 +152,10 @@ The numeric id is **tombstoned** in `.fits/registry.json` so it cannot be reissu
 When the repo root is a git repository (has `.fits/../.git` at the repo root), `fits rm` runs `git rm` and creates a commit with message `fits rm: {id}`. Without git at the repo root, removal still tombstones the id but omits `git_commit`.
 
 ```sh
-fits register obj-type REQ
-fits new REQ
+fits register node-type REQ
+fits new node REQ
 fits rm REQ-1
-fits new REQ          # creates REQ-2, not REQ-1
+fits new node REQ          # creates REQ-2, not REQ-1
 ```
 
 To inspect removal history in git:
