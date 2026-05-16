@@ -55,6 +55,7 @@ test {
     _ = @import("test/new_link_functional.zig");
     _ = @import("test/new_node_functional.zig");
     _ = @import("test/register_functional.zig");
+    _ = @import("test/register_rm_functional.zig");
     _ = @import("test/links_functional.zig");
     _ = @import("test/remove_object_functional.zig");
     _ = @import("test/update_functional.zig");

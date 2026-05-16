@@ -104,6 +104,23 @@ Renames a **node-type** prefix (and renames issued instances under `objects/`) o
 fits register rename-type REQ FOO
 ```
 
+#### `fits register rm <TYPE> [--force] [--preserve-local] [--cascade]`
+
+Unregisters a **node-type** prefix or **link** type. Without `--force`, the command fails if any live instances exist in the registry or on disk (`objects/` for nodes; `relations/links.jsonc` and `relations/<id>/` for links).
+
+- **`--force`**: remove non-tombstoned instances, then drop the type from `.fits/registry.json` and optional config keys.
+- **`--preserve-local`**: with `--force`, update the registry and link index but leave files under `objects/` and `relations/` on disk.
+- **`--cascade`**: with `--force` on a **node type**, also remove dangling link rows that reference that prefix and unregister link types that use it as an in/out node type. Required when `--force` would otherwise leave dangling links.
+
+Tombstoned numeric ids are never deleted from disk, regardless of flags.
+
+```sh
+fits register rm REQ
+fits register rm REQ --force
+fits register rm REQ --force --cascade
+fits register rm implements --force
+```
+
 #### Deprecated commands
 
 - `fits register new <NODE_PREFIX>` → use `fits register node-type`.

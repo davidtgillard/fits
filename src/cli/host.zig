@@ -19,6 +19,7 @@ const report_mod = @import("../output/report.zig");
 const new_link_mod = @import("../app/new_link.zig");
 const new_node_mod = @import("../app/new_node.zig");
 const register_mod = @import("../app/register.zig");
+const register_rm_mod = @import("../app/register_rm.zig");
 const remove_object_mod = @import("../app/remove_object.zig");
 const update_mod = @import("../app/update.zig");
 const graph_link_endpoints_mod = @import("../app/graph_link_endpoints_validator.zig");
@@ -618,6 +619,42 @@ fn runRegister(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
         return error.InvalidArgv;
     }
 
+    if (std.mem.eql(u8, sub, "rm")) {
+        var force = false;
+        var preserve_local = false;
+        var cascade = false;
+        var type_name: ?[]const u8 = null;
+        while (args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--force")) {
+                force = true;
+                continue;
+            }
+            if (std.mem.eql(u8, arg, "--preserve-local")) {
+                preserve_local = true;
+                continue;
+            }
+            if (std.mem.eql(u8, arg, "--cascade")) {
+                cascade = true;
+                continue;
+            }
+            if (type_name != null) {
+                printRegisterUsage();
+                return error.InvalidArgv;
+            }
+            type_name = arg;
+        }
+        const tn = type_name orelse {
+            printRegisterUsage();
+            return error.InvalidArgv;
+        };
+        try register_rm_mod.runRemoveType(allocator, io, register_mod.default_repo_root, register_mod.default_objects_dir, tn, .{
+            .force = force,
+            .preserve_local = preserve_local,
+            .cascade = cascade,
+        });
+        return;
+    }
+
     if (std.mem.eql(u8, sub, "rename-type")) {
         const old_name = args.next() orelse {
             printRegisterUsage();
@@ -707,6 +744,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
             \\  {s} register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]
             \\  {s} register list [node-types|link-types]
             \\  {s} register rename-type <OLD> <NEW>
+            \\  {s} register rm <TYPE> [--force] [--preserve-local] [--cascade]
             \\  {s} rm <NODE_ID or LINK_ID>
             \\  {s} persona install <path> [--link]
             \\  {s} persona list
@@ -714,7 +752,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
             \\  {s} update [--check]
             \\  {s} version
             \\
-        , .{ name, name, name, name, name, name, name, name, name, name, name, name, name, name });
+        , .{ name, name, name, name, name, name, name, name, name, name, name, name, name, name, name });
         return;
     }
     const m = resolved.manifest.?;
@@ -739,6 +777,7 @@ fn printRegisterUsage() void {
         \\  fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]
         \\  fits register list [node-types|link-types]
         \\  fits register rename-type <OLD> <NEW>
+        \\  fits register rm <TYPE> [--force] [--preserve-local] [--cascade]
         \\
     , .{});
 }

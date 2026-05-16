@@ -409,6 +409,78 @@ pub const Registry = struct {
         }
         return out;
     }
+
+    /// Returns whether any issued, non-tombstoned numeric suffix exists for `obj_prefix`.
+    pub fn hasLiveNodeInstance(self: *const Registry, obj_prefix: []const u8) bool {
+        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return false;
+        const entry = self.prefixes.items[idx];
+        var n: u64 = 1;
+        while (n < entry.next) : (n += 1) {
+            if (!self.isTombstoned(obj_prefix, n)) return true;
+        }
+        return false;
+    }
+
+    /// Returns whether any issued, non-tombstoned link id exists for `link_type`.
+    pub fn hasLiveLinkInstance(self: *const Registry, link_type: []const u8) bool {
+        const idx = findLinkTypeIndex(self.link_types.items, link_type) orelse return false;
+        const entry = self.link_types.items[idx];
+        var n: u64 = 1;
+        while (n < entry.next) : (n += 1) {
+            if (!self.isLinkTombstoned(link_type, n)) return true;
+        }
+        return false;
+    }
+
+    /// Collects link type names whose `in_obj_prefix` or `out_obj_prefix` equals `obj_prefix`.
+    ///
+    /// Returns: owned slice of owned strings; caller must free each element and the slice.
+    pub fn linkTypesReferencingPrefix(
+        self: *const Registry,
+        allocator: std.mem.Allocator,
+        obj_prefix: []const u8,
+    ) ![]const []const u8 {
+        var out: std.ArrayList([]const u8) = .empty;
+        errdefer {
+            for (out.items) |s| allocator.free(s);
+            out.deinit(allocator);
+        }
+        for (self.link_types.items) |entry| {
+            if (std.mem.eql(u8, entry.in_obj_prefix, obj_prefix) or
+                std.mem.eql(u8, entry.out_obj_prefix, obj_prefix))
+            {
+                const copy = try allocator.dupe(u8, entry.link_type);
+                try out.append(allocator, copy);
+            }
+        }
+        return try out.toOwnedSlice(allocator);
+    }
+
+    /// Removes a registered node-type prefix entry (frees nested storage).
+    pub fn removePrefix(self: *Registry, obj_prefix: []const u8) !void {
+        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return error.UnknownObjPrefix;
+        var entry = self.prefixes.items[idx];
+        self.allocator.free(entry.obj_prefix);
+        for (entry.tombstones.items) |ts| {
+            if (ts.git_commit) |c| self.allocator.free(c);
+        }
+        entry.tombstones.deinit(self.allocator);
+        _ = self.prefixes.swapRemove(idx);
+    }
+
+    /// Removes a registered link type entry (frees nested storage).
+    pub fn removeLinkType(self: *Registry, link_type: []const u8) !void {
+        const idx = findLinkTypeIndex(self.link_types.items, link_type) orelse return error.UnknownLinkType;
+        var entry = self.link_types.items[idx];
+        self.allocator.free(entry.link_type);
+        self.allocator.free(entry.in_obj_prefix);
+        self.allocator.free(entry.out_obj_prefix);
+        for (entry.tombstones.items) |ts| {
+            if (ts.git_commit) |c| self.allocator.free(c);
+        }
+        entry.tombstones.deinit(self.allocator);
+        _ = self.link_types.swapRemove(idx);
+    }
 };
 
 fn registryJsonSlice(self: *Registry) ![]const u8 {
@@ -778,4 +850,42 @@ test "renamePrefix" {
     try std.testing.expect(!reg.hasObjPrefix("REQ"));
     try std.testing.expect(reg.hasObjPrefix("FOO"));
     try std.testing.expectEqual(@as(?u64, 2), reg.nextForObjPrefix("FOO"));
+}
+
+test "removePrefix and hasLiveNodeInstance" {
+    const alloc = std.testing.allocator;
+    var reg: Registry = .{ .allocator = alloc };
+    defer reg.deinit();
+
+    try reg.registerNewPrefix("REQ");
+    try std.testing.expect(!reg.hasLiveNodeInstance("REQ"));
+    _ = try reg.allocateNextNumeric("REQ");
+    try std.testing.expect(reg.hasLiveNodeInstance("REQ"));
+    try reg.tombstoneNumeric("REQ", 1, .{});
+    try std.testing.expect(!reg.hasLiveNodeInstance("REQ"));
+
+    try reg.removePrefix("REQ");
+    try std.testing.expect(!reg.hasObjPrefix("REQ"));
+    try std.testing.expectError(error.UnknownObjPrefix, reg.removePrefix("REQ"));
+}
+
+test "linkTypesReferencingPrefix and removeLinkType" {
+    const alloc = std.testing.allocator;
+    var reg: Registry = .{ .allocator = alloc };
+    defer reg.deinit();
+
+    try reg.registerNewPrefix("REQ");
+    try reg.registerNewPrefix("DOC");
+    try reg.registerNewLinkType("implements", "REQ", "DOC");
+
+    const refs = try reg.linkTypesReferencingPrefix(alloc, "REQ");
+    defer {
+        for (refs) |s| alloc.free(s);
+        alloc.free(refs);
+    }
+    try std.testing.expectEqual(@as(usize, 1), refs.len);
+    try std.testing.expectEqualStrings("implements", refs[0]);
+
+    try reg.removeLinkType("implements");
+    try std.testing.expect(!reg.hasLinkType("implements"));
 }

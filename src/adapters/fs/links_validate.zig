@@ -217,6 +217,7 @@ fn validateLabelsArray(report: *ValidationReport, link_path: []const u8, value: 
 
     const arr = switch (value) {
         .array => |a| a,
+        .null => return,
         else => {
             pushIssueStatic(report, p, "must be an array");
             return;

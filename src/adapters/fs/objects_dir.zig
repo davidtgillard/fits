@@ -43,6 +43,37 @@ pub fn collectInstanceMatches(
     return out;
 }
 
+/// Collects every basename under `objects_path` matching `obj_prefix` (any numeric suffix).
+pub fn collectPrefixBasenames(
+    allocator: std.mem.Allocator,
+    io: Io,
+    objects_path: []const u8,
+    obj_prefix: []const u8,
+) !std.ArrayList(InstanceMatch) {
+    const cwd = Io.Dir.cwd();
+    var out: std.ArrayList(InstanceMatch) = .empty;
+    errdefer {
+        for (out.items) |m| allocator.free(m.basename);
+        out.deinit(allocator);
+    }
+
+    var dir = cwd.openDir(io, objects_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return out,
+        else => |e| return e,
+    };
+    defer dir.close(io);
+
+    var iter = dir.iterate();
+    while (try iter.next(io)) |entry| {
+        if (entry.kind == .sym_link) continue;
+        const basename = entry.name;
+        if (register.parseInstanceNumeric(obj_prefix, basename) == null) continue;
+        const copy = try allocator.dupe(u8, basename);
+        try out.append(allocator, .{ .basename = copy });
+    }
+    return out;
+}
+
 /// Deletes a path under `objects_path` (file or directory tree).
 pub fn deleteInstancePath(io: Io, objects_path: []const u8, basename: []const u8) !void {
     const cwd = Io.Dir.cwd();

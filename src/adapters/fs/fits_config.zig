@@ -236,6 +236,42 @@ pub fn renameRepoObjTypeCreateFolderKey(
     try writeParsedConfig(io, allocator, path, &pc);
 }
 
+/// Removes `[obj_types.PREFIX]` from repo config when present.
+pub fn removeRepoObjTypeCreateFolderKey(
+    allocator: std.mem.Allocator,
+    io: Io,
+    repo_root: []const u8,
+    obj_prefix: []const u8,
+) !void {
+    const path = try joinRepoFitsConfigPath(allocator, repo_root);
+    defer allocator.free(path);
+
+    var pc = try loadParsedConfigFile(allocator, io, path);
+    defer pc.deinit();
+
+    const v = pc.obj_type_create_folder.fetchRemove(obj_prefix) orelse return;
+    defer pc.allocator.free(v.key);
+    try writeParsedConfig(io, allocator, path, &pc);
+}
+
+/// Removes `[link_types.LINK_TYPE]` from repo config when present.
+pub fn removeRepoLinkTypeCreateFolderKey(
+    allocator: std.mem.Allocator,
+    io: Io,
+    repo_root: []const u8,
+    link_type: []const u8,
+) !void {
+    const path = try joinRepoFitsConfigPath(allocator, repo_root);
+    defer allocator.free(path);
+
+    var pc = try loadParsedConfigFile(allocator, io, path);
+    defer pc.deinit();
+
+    const v = pc.link_type_create_folder.fetchRemove(link_type) orelse return;
+    defer pc.allocator.free(v.key);
+    try writeParsedConfig(io, allocator, path, &pc);
+}
+
 /// Renames a `[link_types.OLD]` preferences block when renaming a link type.
 pub fn renameRepoLinkTypeCreateFolderKey(
     allocator: std.mem.Allocator,

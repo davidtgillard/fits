@@ -123,7 +123,6 @@ pub fn loadLinks(
 
     if (!struct_rep.isEmpty()) {
         try links_validate.appendReport(report, &struct_rep);
-        allocator.free(stripped);
         return error.LinksInvalid;
     }
 
@@ -131,7 +130,6 @@ pub fn loadLinks(
         const msg = try std.fmt.allocPrint(allocator, "invalid JSON: {s}", .{@errorName(err)});
         defer allocator.free(msg);
         try links_validate.pushIssue(report, "$", msg);
-        allocator.free(stripped);
         return error.LinksInvalid;
     };
 
@@ -192,7 +190,6 @@ pub fn loadLinksStructuralOnly(
 
     if (!struct_rep.isEmpty()) {
         try links_validate.appendReport(report, &struct_rep);
-        allocator.free(stripped);
         return error.LinksInvalid;
     }
 
@@ -200,7 +197,6 @@ pub fn loadLinksStructuralOnly(
         const msg = try std.fmt.allocPrint(allocator, "invalid JSON: {s}", .{@errorName(err)});
         defer allocator.free(msg);
         try links_validate.pushIssue(report, "$", msg);
-        allocator.free(stripped);
         return error.LinksInvalid;
     };
 
@@ -315,6 +311,195 @@ pub fn rewriteLinkTypeRows(
     }
 
     try writeLinksAtomic(io, allocator, repo_root, new_rows.items);
+}
+
+/// Returns whether any non-tombstoned link row references `obj_prefix` on `in` or `out`.
+pub fn hasDanglingLinksForPrefix(
+    registry: *const fits_registry.Registry,
+    loaded: *const LoadedLinks,
+    obj_prefix: []const u8,
+) bool {
+    const one = [_][]const u8{obj_prefix};
+    for (loaded.rows()) |row| {
+        if (isDanglingRow(registry, row, &one)) return true;
+    }
+    return false;
+}
+
+/// Removes link rows whose endpoints use `obj_prefix` (skips tombstoned link ids).
+///
+/// Parameters:
+/// - `preserve_local`: when true, keeps `relations/<id>/` directories on disk.
+///
+/// Returns: number of rows removed.
+pub fn removeDanglingLinksForPrefix(
+    allocator: std.mem.Allocator,
+    io: Io,
+    repo_root: []const u8,
+    registry: *fits_registry.Registry,
+    obj_prefix: []const u8,
+    preserve_local: bool,
+) !usize {
+    var rep = links_validate.ValidationReport{ .allocator = allocator };
+    defer rep.deinit();
+
+    var loaded = try loadLinks(allocator, io, repo_root, registry, &rep);
+    defer loaded.deinit();
+
+    if (!rep.isEmpty()) {
+        const lp = try formatLinksRelPath(allocator, repo_root);
+        defer allocator.free(lp);
+        rep.print(lp);
+        return error.LinksInvalid;
+    }
+
+    const one = [_][]const u8{obj_prefix};
+    var kept: std.ArrayList(LinkRowJson) = .empty;
+    defer {
+        for (kept.items) |row| freeLinkRow(allocator, row);
+        kept.deinit(allocator);
+    }
+
+    var removed: usize = 0;
+    const cwd = Dir.cwd();
+
+    for (loaded.rows()) |r| {
+        if (isDanglingRow(registry, r, &one)) {
+            removed += 1;
+            if (!preserve_local) {
+                const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name, r.id });
+                defer allocator.free(payload_dir);
+                if (cwd.statFile(io, payload_dir, .{})) |_| {
+                    try cwd.deleteTree(io, payload_dir);
+                } else |_| {}
+            }
+            continue;
+        }
+        try kept.append(allocator, try duplicateLinkRow(allocator, r));
+    }
+
+    try writeLinksAtomic(io, allocator, repo_root, kept.items);
+    return removed;
+}
+
+/// Drops non-tombstoned rows for `link_type` from `links.jsonc` and optional payload dirs.
+pub fn removeLinkTypeFromIndex(
+    allocator: std.mem.Allocator,
+    io: Io,
+    repo_root: []const u8,
+    registry: *fits_registry.Registry,
+    link_type: []const u8,
+    preserve_local: bool,
+) !void {
+    var rep = links_validate.ValidationReport{ .allocator = allocator };
+    defer rep.deinit();
+
+    var loaded = try loadLinks(allocator, io, repo_root, registry, &rep);
+    defer loaded.deinit();
+
+    if (!rep.isEmpty()) {
+        const lp = try formatLinksRelPath(allocator, repo_root);
+        defer allocator.free(lp);
+        rep.print(lp);
+        return error.LinksInvalid;
+    }
+
+    var kept: std.ArrayList(LinkRowJson) = .empty;
+    defer {
+        for (kept.items) |row| freeLinkRow(allocator, row);
+        kept.deinit(allocator);
+    }
+
+    const cwd = Dir.cwd();
+
+    for (loaded.rows()) |r| {
+        if (std.mem.eql(u8, r.link_type, link_type)) {
+            const parsed_n = instance_id.parseSuffixAfterPrefix(r.id, link_type) orelse continue;
+            if (registry.isLinkTombstoned(link_type, parsed_n)) continue;
+            if (!preserve_local) {
+                const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name, r.id });
+                defer allocator.free(payload_dir);
+                if (cwd.statFile(io, payload_dir, .{})) |_| {
+                    try cwd.deleteTree(io, payload_dir);
+                } else |_| {}
+            }
+            continue;
+        }
+        try kept.append(allocator, try duplicateLinkRow(allocator, r));
+    }
+
+    try writeLinksAtomic(io, allocator, repo_root, kept.items);
+
+    if (!preserve_local) {
+        const rel_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name });
+        defer allocator.free(rel_dir);
+        var dir = cwd.openDir(io, rel_dir, .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound => return,
+            else => |e| return e,
+        };
+        defer dir.close(io);
+
+        var iter = dir.iterate();
+        while (try iter.next(io)) |entry| {
+            if (entry.kind != .directory) continue;
+            const parsed_n = instance_id.parseSuffixAfterPrefix(entry.name, link_type) orelse continue;
+            if (registry.isLinkTombstoned(link_type, parsed_n)) continue;
+            const full = try std.fs.path.join(allocator, &.{ rel_dir, entry.name });
+            defer allocator.free(full);
+            try cwd.deleteTree(io, full);
+        }
+    }
+}
+
+fn isDanglingRow(
+    registry: *const fits_registry.Registry,
+    row: LinkRowJson,
+    obj_prefixes: []const []const u8,
+) bool {
+    const parsed_n = instance_id.parseSuffixAfterPrefix(row.id, row.link_type) orelse return false;
+    if (registry.isLinkTombstoned(row.link_type, parsed_n)) return false;
+
+    if (instance_id.parseNodeName(row.in, obj_prefixes)) |_| return true;
+    if (instance_id.parseNodeName(row.out, obj_prefixes)) |_| return true;
+    return false;
+}
+
+fn duplicateLinkRow(allocator: std.mem.Allocator, r: LinkRowJson) !LinkRowJson {
+    const id_c = try allocator.dupe(u8, r.id);
+    errdefer allocator.free(id_c);
+    const lt_c = try allocator.dupe(u8, r.link_type);
+    errdefer allocator.free(lt_c);
+    const o_c = try allocator.dupe(u8, r.out);
+    errdefer allocator.free(o_c);
+    const i_c = try allocator.dupe(u8, r.in);
+    errdefer allocator.free(i_c);
+    var labels_c: ?[][]const u8 = null;
+    if (r.labels) |ls| {
+        const copy = try allocator.alloc([]const u8, ls.len);
+        errdefer allocator.free(copy);
+        for (ls, 0..) |s, j| {
+            copy[j] = try allocator.dupe(u8, s);
+        }
+        labels_c = copy;
+    }
+    return .{
+        .id = id_c,
+        .link_type = lt_c,
+        .out = o_c,
+        .in = i_c,
+        .labels = labels_c,
+    };
+}
+
+fn freeLinkRow(allocator: std.mem.Allocator, row: LinkRowJson) void {
+    allocator.free(row.id);
+    allocator.free(row.link_type);
+    allocator.free(row.out);
+    allocator.free(row.in);
+    if (row.labels) |ls| {
+        for (ls) |s| allocator.free(s);
+        allocator.free(ls);
+    }
 }
 
 /// Serializes `rows` into `relations/links.jsonc` atomically (JSON, no comments).
