@@ -129,22 +129,24 @@ fn httpGetOnce(
     };
     defer client.deinit();
 
-    var headers: [4]std.http.Header = undefined;
-    var n: usize = 0;
-    headers[n] = .{ .name = "User-Agent", .value = "fits-cli" };
-    n += 1;
+    // Override the std.http default User-Agent; do not add a second User-Agent via
+    // extra_headers — release-asset redirects (Azure) reject duplicate names.
+    var extra_headers: [1]std.http.Header = undefined;
+    var extra_n: usize = 0;
     if (kind == .api) {
-        headers[n] = .{ .name = "Accept", .value = "application/vnd.github+json" };
-        n += 1;
+        extra_headers[0] = .{ .name = "Accept", .value = "application/vnd.github+json" };
+        extra_n = 1;
     }
 
+    var privileged_headers: [1]std.http.Header = undefined;
+    var priv_n: usize = 0;
     var auth_owned: ?[]u8 = null;
     defer if (auth_owned) |a| allocator.free(a);
 
     if (auth_token) |token| {
         auth_owned = try std.fmt.allocPrint(allocator, "Bearer {s}", .{token});
-        headers[n] = .{ .name = "Authorization", .value = auth_owned.? };
-        n += 1;
+        privileged_headers[0] = .{ .name = "Authorization", .value = auth_owned.? };
+        priv_n = 1;
     }
 
     var body_list: std.ArrayList(u8) = .empty;
@@ -153,7 +155,9 @@ fn httpGetOnce(
 
     const result = try client.fetch(.{
         .location = .{ .url = url },
-        .extra_headers = headers[0..n],
+        .headers = .{ .user_agent = .{ .override = "fits-cli" } },
+        .extra_headers = extra_headers[0..extra_n],
+        .privileged_headers = privileged_headers[0..priv_n],
         .response_writer = &body_writer_alloc.writer,
     });
 
