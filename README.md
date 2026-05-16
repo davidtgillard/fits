@@ -205,6 +205,12 @@ Manual download:
 gh release download dev -R davidtgillard/fits -p fits -p manifest.json
 ```
 
+## Personas
+
+The same `fits` binary can act as a **named product** (e.g. `foo`) when invoked via a symlink. Persona behavior is loaded at runtime from a package on disk (`persona.toml`, registry snapshot, hook binaries). Install with `fits persona install`, then `ln -s fits foo`.
+
+See **[docs/personas.md](docs/personas.md)** for how to author a persona, and **[docs/personas_implementation_plan.md](docs/personas_implementation_plan.md)** for the internal implementation plan.
+
 ## Exit status
 
 Non-zero exits indicate failures (e.g. invalid arguments, unregistered node type, I/O errors, or validation errors), depending on the subcommand and implementation. `fits update --check` exits `1` when a newer `dev` release is available.

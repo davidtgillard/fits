@@ -1,0 +1,4 @@
+#!/bin/sh
+# Demo hook: echo empty findings JSON
+printf '%s\n' '{"findings":[]}'
+exit 0

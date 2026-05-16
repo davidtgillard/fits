@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     build_options.addOption([]const u8, "git_commit", git_commit);
     build_options.addOption([]const u8, "github_owner", github_owner);
     build_options.addOption([]const u8, "github_repo", github_repo);
+    build_options.addOption([]const u8, "fits_version", "0.1.0");
 
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),

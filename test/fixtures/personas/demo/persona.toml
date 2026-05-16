@@ -1,0 +1,21 @@
+id = "demo"
+version = "1.0.0"
+fits_min_version = "0.1.0"
+
+[cli]
+description = "Demo persona for fits tests"
+
+[commands]
+allow = ["validate", "new", "rm", "version"]
+
+[registry]
+mode = "fixed"
+snapshot = "registry.snapshot.json"
+
+[validate]
+hooks_default = true
+include_link_endpoints = true
+
+[[validate.hook]]
+nodes_command = ["demo-validate", "nodes"]
+links_command = ["demo-validate", "links"]
