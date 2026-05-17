@@ -37,7 +37,11 @@ pub fn main(init: std.process.Init) !void {
     defer args.deinit();
     _ = args.next();
 
-    try host.runCli(&resolved, allocator, io, init.environ_map, &args);
+    host.runCli(&resolved, allocator, io, init.environ_map, &args) catch |err| switch (err) {
+        // Usage/argv mistakes already printed; exit without Zig's error stack trace.
+        error.InvalidArgv, error.CommandNotAllowed => std.process.exit(1),
+        else => return err,
+    };
 }
 
 test {

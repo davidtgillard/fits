@@ -54,8 +54,9 @@ pub fn runCli(
                 }
             }
         }
+        std.debug.print("unknown command: {s}\n", .{cmd_str});
         printUsage(resolved);
-        return;
+        return error.InvalidArgv;
     };
 
     if (!resolved.allows(cmd)) {
@@ -851,3 +852,25 @@ const BuiltInValidator = struct {
         };
     }
 };
+
+const ArgSliceIter = struct {
+    slice: []const []const u8,
+    index: usize = 0,
+
+    pub fn next(self: *ArgSliceIter) ?[]const u8 {
+        if (self.index >= self.slice.len) return null;
+        const s = self.slice[self.index];
+        self.index += 1;
+        return s;
+    }
+};
+
+test "unknown command returns InvalidArgv" {
+    const a = std.testing.allocator;
+    var resolved = persona.defaultPersona(a);
+    var argv = [_][]const u8{"nosuchcmd"};
+    var args: ArgSliceIter = .{ .slice = &argv };
+    var env_map = std.process.Environ.Map.init(a);
+    defer env_map.deinit();
+    try std.testing.expectError(error.InvalidArgv, runCli(&resolved, a, std.testing.io, &env_map, &args));
+}
