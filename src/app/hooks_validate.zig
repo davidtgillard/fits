@@ -18,6 +18,7 @@ const Io = std.Io;
 /// Runs graph-node and/or link hooks and returns owned findings (empty when disabled).
 ///
 /// When `dry_run` is true, successful hook runs do not persist fingerprint entries to the cache.
+/// When `hooks_full_graph` is true, every node and link is eligible for hook payloads (no git or fingerprint narrowing).
 pub fn runHooks(
     allocator: std.mem.Allocator,
     io: Io,
@@ -28,8 +29,7 @@ pub fn runHooks(
     full_snapshot: *const graph.GraphSnapshot,
     cache: *lattice.LatticeDbCache,
     cfg: *const hooks_config.HooksConfig,
-    hooks_full: bool,
-    hooks_incremental: bool,
+    hooks_full_graph: bool,
     dry_run: bool,
     run_id: []const u8,
     git_head: ?[]const u8,
@@ -44,7 +44,7 @@ pub fn runHooks(
         return try out.toOwnedSlice(allocator);
     }
 
-    const use_git_narrowing = hooks_incremental and !hooks_full;
+    const use_git_narrowing = !hooks_full_graph;
     var git_state: git_dirty.GitDirtyState = .{};
     if (use_git_narrowing) {
         git_state = try git_dirty.load(allocator, io, repo_root);
@@ -53,7 +53,7 @@ pub fn runHooks(
     const git_ptr: ?*const git_dirty.GitDirtyState = if (use_git_narrowing) &git_state else null;
 
     if (cfg.nodes_argv.len != 0) {
-        const work_objs = try filterBundles(allocator, cache, "node", cfg.nodes_argv, hooks_full, hooks_incremental, git_ptr, bundles);
+        const work_objs = try filterBundles(allocator, cache, "node", cfg.nodes_argv, hooks_full_graph, git_ptr, bundles);
         defer {
             for (work_objs) |*b| freeBundle(allocator, b);
             allocator.free(work_objs);
@@ -121,7 +121,7 @@ pub fn runHooks(
         defer prefs.deinit();
 
         const rows = loaded.rows();
-        const work_rows = try filterLinks(allocator, cache, cfg.links_argv, hooks_full, hooks_incremental, git_ptr, rows);
+        const work_rows = try filterLinks(allocator, cache, cfg.links_argv, hooks_full_graph, git_ptr, rows);
         defer allocator.free(work_rows);
 
         if (work_rows.len != 0) {
@@ -255,12 +255,11 @@ fn filterBundles(
     cache: *lattice.LatticeDbCache,
     tag: []const u8,
     argv: []const []const u8,
-    hooks_full: bool,
-    hooks_incremental: bool,
+    hooks_full_graph: bool,
     git: ?*const git_dirty.GitDirtyState,
     bundles: []const graph.NodeBundle,
 ) ![]graph.NodeBundle {
-    if (hooks_full or !hooks_incremental) {
+    if (hooks_full_graph) {
         var out = try allocator.alloc(graph.NodeBundle, bundles.len);
         errdefer {
             for (out) |*b| freeBundle(allocator, b);
@@ -311,12 +310,11 @@ fn filterLinks(
     allocator: std.mem.Allocator,
     cache: *lattice.LatticeDbCache,
     argv: []const []const u8,
-    hooks_full: bool,
-    hooks_incremental: bool,
+    hooks_full_graph: bool,
     git: ?*const git_dirty.GitDirtyState,
     rows: []const links_index.LinkRowJson,
 ) ![]links_index.LinkRowJson {
-    if (hooks_full or !hooks_incremental) {
+    if (hooks_full_graph) {
         return try allocator.dupe(links_index.LinkRowJson, rows);
     }
     const ah = argvHash(argv);

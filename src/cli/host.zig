@@ -189,16 +189,11 @@ fn runValidate(
     environ: *const std.process.Environ.Map,
     args: anytype,
 ) !void {
-    var hooks_full = false;
-    var hooks_incremental = true;
+    var hooks_full_graph = false;
     var dry_run = false;
     while (args.next()) |a| {
-        if (std.mem.eql(u8, a, "--hooks-full")) {
-            hooks_full = true;
-            continue;
-        }
-        if (std.mem.eql(u8, a, "--no-hooks-incremental")) {
-            hooks_incremental = false;
+        if (std.mem.eql(u8, a, "--hooks-full-graph")) {
+            hooks_full_graph = true;
             continue;
         }
         if (std.mem.eql(u8, a, "--dry-run")) {
@@ -310,8 +305,7 @@ fn runValidate(
         &hook_snapshot,
         &cache,
         &hook_cfg,
-        hooks_full,
-        hooks_incremental,
+        hooks_full_graph,
         dry_run,
         run_id,
         git_head_opt,
@@ -752,7 +746,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
         std.debug.print(
             \\Usage:
             \\  {s} init
-            \\  {s} validate [--dry-run] [--hooks-full] [--no-hooks-incremental]
+            \\  {s} validate [--dry-run] [--hooks-full-graph]
             \\  {s} new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
             \\  {s} new link <LINK_TYPE> <IN_ID> <OUT_ID>
             \\  {s} register node-type <NODE_PREFIX> [--create-folder]

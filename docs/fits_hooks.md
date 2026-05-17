@@ -32,17 +32,15 @@ timeout_secs = 120
 ```sh
 fits validate
 fits validate --dry-run
-fits validate --hooks-full
-fits validate --no-hooks-incremental
+fits validate --hooks-full-graph
 ```
 
 - **`--dry-run`:** Run validation and hooks as usual but do not write hook fingerprint entries to the LatticeDB cache.
-- **`--hooks-full`:** Ignore incremental optimization: every graph object row relevant to hooks is considered for hook payloads (still subject to `max_request_bytes`).
-- **`--no-hooks-incremental`:** Disable fingerprint-based skipping (same as a full refresh for the cache).
+- **`--hooks-full-graph`:** Include every node and link in hook payloads; skip git narrowing and fingerprint-based skipping (still subject to `max_request_bytes`).
 
 ## Incremental behavior
 
-When incremental mode is on (default `fits validate`, without `--hooks-full` or `--no-hooks-incremental`):
+When incremental mode is on (default `fits validate`, without `--hooks-full-graph`):
 
 1. **Fingerprints** (Wyhash over canonical node bundle bytes and link row fields) are stored in the LatticeDB cache under keys `hooks:node:<argv-hash>:<id>` and `hooks:link:...`. If the fingerprint matches the last successful run for that id, the entity is skipped for that hook.
 2. **Git narrowing** (when `.git` exists and `git diff HEAD --name-only` succeeds): only paths that appear in the diff are eligible. Node ids are taken from path segments under `nodes/…` that match `{ID_PREFIX}-{n}`; link rows are filtered when `links/links.jsonc` changes or paths under `links/<link-type>/<link-id>/` change. If git is missing or the command fails, hooks fall back to fingerprint-only narrowing.
