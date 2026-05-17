@@ -803,7 +803,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
             \\  {s} output-graph [--pretty-print]
             \\  {s} new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
             \\  {s} new link <LINK_TYPE> <IN_ID> <OUT_ID>
-            \\  {s} register node-type <NODE_PREFIX> [--create-folder]
+            \\  {s} register node-type <NODE_PREFIX> [--abstract | --extends <ABSTRACT>] [--create-folder]
             \\  {s} register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]
             \\  {s} register list [node-types|link-types]
             \\  {s} register rename-type <OLD> <NEW>
@@ -836,7 +836,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
 fn printRegisterUsage() void {
     std.debug.print(
         \\Usage:
-        \\  fits register node-type <NODE_PREFIX> [--create-folder]
+        \\  fits register node-type <NODE_PREFIX> [--abstract | --extends <ABSTRACT>] [--create-folder]
         \\  fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]
         \\  fits register list [node-types|link-types]
         \\  fits register rename-type <OLD> <NEW>
