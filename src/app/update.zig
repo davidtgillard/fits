@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const build_options = @import("build_options");
 const fits_config = @import("../adapters/fs/fits_config.zig");
-const latticedb_cache = @import("../adapters/cache/latticedb_cache.zig");
+const fits_cache = @import("../adapters/cache/fits_cache.zig");
 const github_release = @import("../adapters/github/release.zig");
 
 const Io = std.Io;
@@ -90,7 +90,7 @@ pub fn runCheck(
     allocator: std.mem.Allocator,
     io: Io,
     source: UpdateSource,
-    cache: *latticedb_cache.LatticeDbCache,
+    cache: *fits_cache.FitsCache,
     opts: CheckOptions,
 ) !void {
     if (!isUpdatableBuild()) {
@@ -128,7 +128,7 @@ pub fn runApply(
     allocator: std.mem.Allocator,
     io: Io,
     source: UpdateSource,
-    cache: *latticedb_cache.LatticeDbCache,
+    cache: *fits_cache.FitsCache,
 ) !void {
     if (!isUpdatableBuild()) {
         std.debug.print("fits was built from source and cannot self-update\n", .{});
@@ -165,10 +165,10 @@ pub fn runBackgroundCheck(
     environ: *const std.process.Environ.Map,
     source: UpdateSource,
 ) !void {
-    const store_dir = try latticedb_cache.LatticeDbCache.resolveStoreDir(allocator, io, environ, ".");
+    const store_dir = try fits_cache.FitsCache.resolveStoreDir(allocator, io, environ, ".");
     defer allocator.free(store_dir);
 
-    var cache = try latticedb_cache.LatticeDbCache.open(allocator, io, store_dir);
+    var cache = try fits_cache.FitsCache.open(allocator, io, store_dir);
     defer cache.deinit();
 
     runCheck(allocator, io, source, &cache, .{ .quiet = true, .record_check_time = true }) catch |err| switch (err) {
@@ -189,10 +189,10 @@ pub fn shouldSpawnBackgroundCheck(
     if (environ.get("FITS_NO_UPDATE_CHECK")) |_| return false;
 
     const cfg = try fits_config.loadOrCreateDefault(allocator, io, environ);
-    const store_dir = try latticedb_cache.LatticeDbCache.resolveStoreDir(allocator, io, environ, ".");
+    const store_dir = try fits_cache.FitsCache.resolveStoreDir(allocator, io, environ, ".");
     defer allocator.free(store_dir);
 
-    var cache = try latticedb_cache.LatticeDbCache.open(allocator, io, store_dir);
+    var cache = try fits_cache.FitsCache.open(allocator, io, store_dir);
     defer cache.deinit();
 
     const last = try cache.getLastUpdateCheck();

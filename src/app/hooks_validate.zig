@@ -11,7 +11,7 @@ const hooks_config = @import("../adapters/fs/hooks_config.zig");
 const hook_request = @import("../adapters/hooks/hook_request.zig");
 const subprocess_hook = @import("../adapters/hooks/subprocess_runner.zig");
 const git_dirty = @import("../adapters/hooks/git_dirty.zig");
-const lattice = @import("../adapters/cache/latticedb_cache.zig");
+const fits_cache = @import("../adapters/cache/fits_cache.zig");
 
 const Io = std.Io;
 
@@ -27,7 +27,7 @@ pub fn runHooks(
     loaded: *links_index.LoadedLinks,
     bundles: []const graph.NodeBundle,
     full_snapshot: *const graph.GraphSnapshot,
-    cache: *lattice.LatticeDbCache,
+    cache: *fits_cache.FitsCache,
     cfg: *const hooks_config.HooksConfig,
     hooks_full_graph: bool,
     dry_run: bool,
@@ -252,7 +252,7 @@ fn cloneBundle(allocator: std.mem.Allocator, b: graph.NodeBundle) !graph.NodeBun
 
 fn filterBundles(
     allocator: std.mem.Allocator,
-    cache: *lattice.LatticeDbCache,
+    cache: *fits_cache.FitsCache,
     tag: []const u8,
     argv: []const []const u8,
     hooks_full_graph: bool,
@@ -308,7 +308,7 @@ fn fingerprintLink(r: links_index.LinkRowJson) u64 {
 
 fn filterLinks(
     allocator: std.mem.Allocator,
-    cache: *lattice.LatticeDbCache,
+    cache: *fits_cache.FitsCache,
     argv: []const []const u8,
     hooks_full_graph: bool,
     git: ?*const git_dirty.GitDirtyState,
@@ -346,12 +346,12 @@ fn filterLinks(
 }
 
 fn cacheKey(allocator: std.mem.Allocator, kind: []const u8, argv_hash: u64, id: []const u8) ![]const u8 {
-    return std.fmt.allocPrint(allocator, "{s}{s}:{d}:{s}", .{ lattice.hook_fingerprint_prefix, kind, argv_hash, id });
+    return std.fmt.allocPrint(allocator, "{s}{s}:{d}:{s}", .{ fits_cache.hook_fingerprint_prefix, kind, argv_hash, id });
 }
 
 fn persistNodeFingerprints(
     allocator: std.mem.Allocator,
-    cache: *lattice.LatticeDbCache,
+    cache: *fits_cache.FitsCache,
     argv: []const []const u8,
     bundles: []const graph.NodeBundle,
 ) !void {
@@ -368,7 +368,7 @@ fn persistNodeFingerprints(
 
 fn persistLinkFingerprints(
     allocator: std.mem.Allocator,
-    cache: *lattice.LatticeDbCache,
+    cache: *fits_cache.FitsCache,
     argv: []const []const u8,
     rows: []const links_index.LinkRowJson,
 ) !void {

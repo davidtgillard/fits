@@ -5,7 +5,7 @@ const graph = @import("../domain/graph.zig");
 const graph_builder = @import("../domain/graph_builder.zig");
 const validation = @import("../domain/validation.zig");
 const report = @import("../output/report.zig");
-const cache = @import("../adapters/cache/latticedb_cache.zig");
+const cache = @import("../adapters/cache/fits_cache.zig");
 
 /// Runs validation over prepared bundles using a graph builder and validator set.
 pub const ValidateUseCase = struct {

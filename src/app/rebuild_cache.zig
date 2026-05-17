@@ -6,7 +6,7 @@ const persona = @import("../cli/persona.zig");
 const extension_run = @import("../cli/extension_run.zig");
 const loader_mod = @import("../adapters/fs/loader.zig");
 const ignore_mod = @import("../adapters/git/ignore.zig");
-const cache_mod = @import("../adapters/cache/latticedb_cache.zig");
+const cache_mod = @import("../adapters/cache/fits_cache.zig");
 const fits_registry_mod = @import("../adapters/fs/fits_registry.zig");
 const links_index_mod = @import("../adapters/fs/links_index.zig");
 const links_validate_mod = @import("../adapters/fs/links_validate.zig");
@@ -77,9 +77,9 @@ pub fn run(
     const hook_snapshot = try hook_snapshot_builder.asInterface().build(allocator, bundles, link_edges);
     defer hook_snapshot.deinit(allocator);
 
-    const store_dir = try cache_mod.LatticeDbCache.resolveStoreDir(allocator, io, environ, ".");
+    const store_dir = try cache_mod.FitsCache.resolveStoreDir(allocator, io, environ, ".");
     defer allocator.free(store_dir);
-    var cache = try cache_mod.LatticeDbCache.open(allocator, io, store_dir);
+    var cache = try cache_mod.FitsCache.open(allocator, io, store_dir);
     defer cache.deinit();
 
     try cache.clearHookFingerprints();

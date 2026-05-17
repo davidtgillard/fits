@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const fits_config = @import("../adapters/fs/fits_config.zig");
-const latticedb_cache = @import("../adapters/cache/latticedb_cache.zig");
+const fits_cache = @import("../adapters/cache/fits_cache.zig");
 const github_release = @import("../adapters/github/release.zig");
 const update_mod = @import("../app/update.zig");
 
@@ -26,15 +26,15 @@ test "fits_config load creates default period" {
     try std.testing.expectEqual(@as(u64, 3600), cfg.update_check_time_period);
 }
 
-test "latticedb cache last update check" {
+test "fits cache last update check" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const store = "repo/.fits/latticedb";
+    const store = "repo/.fits/cache";
     try tmp.dir.createDirPath(std.testing.io, "repo/.fits");
     try tmp.dir.createDirPath(std.testing.io, store);
 
-    var cache = try latticedb_cache.LatticeDbCache.open(std.testing.allocator, std.testing.io, store);
+    var cache = try fits_cache.FitsCache.open(std.testing.allocator, std.testing.io, store);
     defer cache.deinit();
 
     try cache.setLastUpdateCheck(99_001);

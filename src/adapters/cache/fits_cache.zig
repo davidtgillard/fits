@@ -1,5 +1,5 @@
-//! Local key-value cache under `.fits/latticedb/` (or `~/.fits/latticedb/` globally).
-//! Minimal file-backed store until full LatticeDB integration.
+//! Local key-value cache under `.fits/cache/` (or `~/.fits/cache/` globally).
+//! Minimal file-backed store for machine-owned fits metadata and hook fingerprints.
 
 const std = @import("std");
 const fits_registry = @import("../fs/fits_registry.zig");
@@ -8,8 +8,8 @@ const fits_config = @import("../fs/fits_config.zig");
 const Io = std.Io;
 const Dir = Io.Dir;
 
-/// LatticeDB directory name inside `.fits/` or `~/.fits/`.
-pub const latticedb_dir_name: []const u8 = "latticedb";
+/// Cache directory name inside `.fits/` or `~/.fits/`.
+pub const cache_dir_name: []const u8 = "cache";
 
 /// Cache key for last successful update check timestamp.
 pub const last_update_check_key: []const u8 = "update:last_check";
@@ -38,13 +38,14 @@ pub const CacheStore = struct {
     }
 };
 
-/// File-backed cache opened at `store_dir`.
-pub const LatticeDbCache = struct {
+/// File-backed fits cache opened at `store_dir`.
+pub const FitsCache = struct {
     allocator: std.mem.Allocator,
     store_dir: []const u8,
     io: Io,
 
-    pub fn init(allocator: std.mem.Allocator) LatticeDbCache {
+    /// Creates an uninitialized cache value; use [`open`] before use.
+    pub fn init(allocator: std.mem.Allocator) FitsCache {
         return .{
             .allocator = allocator,
             .store_dir = "",
@@ -53,7 +54,14 @@ pub const LatticeDbCache = struct {
     }
 
     /// Opens or creates the store at `store_dir` (caller-owned string is copied).
-    pub fn open(allocator: std.mem.Allocator, io: Io, store_dir: []const u8) !LatticeDbCache {
+    ///
+    /// Parameters:
+    /// - `allocator`: Used to own `store_dir`.
+    /// - `io`: Process I/O for directory creation.
+    /// - `store_dir`: Absolute or relative path to the cache directory.
+    ///
+    /// Returns: an open [`FitsCache`], or propagated I/O/allocation errors.
+    pub fn open(allocator: std.mem.Allocator, io: Io, store_dir: []const u8) !FitsCache {
         const owned = try allocator.dupe(u8, store_dir);
         errdefer allocator.free(owned);
         const cwd = Dir.cwd();
@@ -65,12 +73,21 @@ pub const LatticeDbCache = struct {
         };
     }
 
-    pub fn deinit(self: *LatticeDbCache) void {
+    /// Frees the owned store directory path.
+    pub fn deinit(self: *FitsCache) void {
         if (self.store_dir.len != 0) self.allocator.free(self.store_dir);
         self.store_dir = "";
     }
 
-    /// Resolves the LatticeDB store directory for `cwd_rel` (caller frees).
+    /// Resolves the fits cache store directory for `cwd_rel` (caller frees).
+    ///
+    /// Parameters:
+    /// - `allocator`: Path joins.
+    /// - `io`: Process I/O for `.fits` existence check.
+    /// - `environ`: Used for `HOME` when no repo-local `.fits/`.
+    /// - `cwd_rel`: Repository root (e.g. `"."`).
+    ///
+    /// Returns: path to `.fits/cache/` when `.fits/` exists, else `~/.fits/cache/`.
     pub fn resolveStoreDir(
         allocator: std.mem.Allocator,
         io: Io,
@@ -82,13 +99,14 @@ pub const LatticeDbCache = struct {
 
         const cwd = Dir.cwd();
         if (fits_config.fitsDirExists(cwd, io, fits_rel)) {
-            return std.fs.path.join(allocator, &.{ fits_rel, latticedb_dir_name });
+            return std.fs.path.join(allocator, &.{ fits_rel, cache_dir_name });
         }
         const home = environ.get("HOME") orelse return error.HomeNotSet;
-        return std.fs.path.join(allocator, &.{ home, ".fits", latticedb_dir_name });
+        return std.fs.path.join(allocator, &.{ home, ".fits", cache_dir_name });
     }
 
-    pub fn asInterface(self: *LatticeDbCache) CacheStore {
+    /// Exposes this cache as a type-erased [`CacheStore`].
+    pub fn asInterface(self: *FitsCache) CacheStore {
         return .{
             .context = self,
             .vtable = &.{
@@ -99,7 +117,7 @@ pub const LatticeDbCache = struct {
     }
 
     /// Reads last update check unix time; 0 when missing.
-    pub fn getLastUpdateCheck(self: *LatticeDbCache) !i64 {
+    pub fn getLastUpdateCheck(self: *FitsCache) !i64 {
         const val = try self.get(last_update_check_key);
         if (val) |bytes| {
             defer self.allocator.free(bytes);
@@ -110,7 +128,7 @@ pub const LatticeDbCache = struct {
     }
 
     /// Persists last update check unix time.
-    pub fn setLastUpdateCheck(self: *LatticeDbCache, unix_sec: i64) !void {
+    pub fn setLastUpdateCheck(self: *FitsCache, unix_sec: i64) !void {
         var buf: [value_size]u8 = undefined;
         std.mem.writeInt(i64, &buf, unix_sec, .little);
         try self.put(last_update_check_key, &buf);
@@ -123,7 +141,7 @@ pub const LatticeDbCache = struct {
     ///
     /// Returns: void on success.
     /// On failure: I/O errors from directory iteration or delete.
-    pub fn clearHookFingerprints(self: *LatticeDbCache) !void {
+    pub fn clearHookFingerprints(self: *FitsCache) !void {
         const encoded_prefix = try encodeKey(self.allocator, hook_fingerprint_prefix);
         defer self.allocator.free(encoded_prefix);
 
@@ -144,7 +162,8 @@ pub const LatticeDbCache = struct {
         }
     }
 
-    pub fn put(self: *LatticeDbCache, key: []const u8, value: []const u8) !void {
+    /// Writes `value` for `key`, replacing any existing entry.
+    pub fn put(self: *FitsCache, key: []const u8, value: []const u8) !void {
         const path = try self.keyPath(key);
         defer self.allocator.free(path);
         const tmp_path = try std.mem.concat(self.allocator, u8, &.{ path, ".tmp" });
@@ -160,7 +179,8 @@ pub const LatticeDbCache = struct {
         try cwd.rename(tmp_path, cwd, path, self.io);
     }
 
-    pub fn get(self: *LatticeDbCache, key: []const u8) !?[]u8 {
+    /// Reads the value for `key`, or null when absent.
+    pub fn get(self: *FitsCache, key: []const u8) !?[]u8 {
         const path = try self.keyPath(key);
         defer self.allocator.free(path);
 
@@ -180,7 +200,7 @@ pub const LatticeDbCache = struct {
         return buf;
     }
 
-    fn keyPath(self: *LatticeDbCache, key: []const u8) ![]const u8 {
+    fn keyPath(self: *FitsCache, key: []const u8) ![]const u8 {
         const safe = try encodeKey(self.allocator, key);
         defer self.allocator.free(safe);
         return std.fs.path.join(self.allocator, &.{ self.store_dir, safe });
@@ -204,12 +224,12 @@ pub const LatticeDbCache = struct {
     }
 
     fn putAdapter(context: *anyopaque, key: []const u8, value: []const u8) anyerror!void {
-        const self: *LatticeDbCache = @ptrCast(@alignCast(context));
+        const self: *FitsCache = @ptrCast(@alignCast(context));
         return self.put(key, value);
     }
 
     fn getAdapter(context: *anyopaque, key: []const u8) anyerror!?[]const u8 {
-        const self: *LatticeDbCache = @ptrCast(@alignCast(context));
+        const self: *FitsCache = @ptrCast(@alignCast(context));
         return self.get(key);
     }
 };
@@ -218,12 +238,12 @@ test "put get roundtrip" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const store = try std.fs.path.join(std.testing.allocator, &.{ "store", latticedb_dir_name });
+    const store = try std.fs.path.join(std.testing.allocator, &.{ "store", cache_dir_name });
     defer std.testing.allocator.free(store);
     try tmp.dir.createDirPath(std.testing.io, "store");
     try tmp.dir.createDirPath(std.testing.io, store);
 
-    var cache = try LatticeDbCache.open(std.testing.allocator, std.testing.io, store);
+    var cache = try FitsCache.open(std.testing.allocator, std.testing.io, store);
     defer cache.deinit();
 
     try cache.setLastUpdateCheck(1_234_567);
@@ -231,7 +251,7 @@ test "put get roundtrip" {
 }
 
 test "encodeKey handles colon" {
-    const enc = try LatticeDbCache.encodeKey(std.testing.allocator, "update:last_check");
+    const enc = try FitsCache.encodeKey(std.testing.allocator, "update:last_check");
     defer std.testing.allocator.free(enc);
     try std.testing.expect(std.mem.indexOf(u8, enc, "%") != null);
 }
@@ -240,12 +260,12 @@ test "clearHookFingerprints removes hooks keys only" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const store = try std.fs.path.join(std.testing.allocator, &.{ "store", latticedb_dir_name });
+    const store = try std.fs.path.join(std.testing.allocator, &.{ "store", cache_dir_name });
     defer std.testing.allocator.free(store);
     try tmp.dir.createDirPath(std.testing.io, "store");
     try tmp.dir.createDirPath(std.testing.io, store);
 
-    var cache = try LatticeDbCache.open(std.testing.allocator, std.testing.io, store);
+    var cache = try FitsCache.open(std.testing.allocator, std.testing.io, store);
     defer cache.deinit();
 
     var hook_buf: [8]u8 = undefined;

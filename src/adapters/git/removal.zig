@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const vcs_removal = @import("../../domain/vcs_removal.zig");
+const git_repo = @import("repo.zig");
 
 const Io = std.Io;
 
@@ -31,7 +32,7 @@ pub const GitRemovalBackend = struct {
 
     fn isAvailableAdapter(context: *anyopaque, io: Io, repo_root: []const u8) bool {
         _ = context;
-        return repoHasGitMetadata(io, repo_root);
+        return git_repo.repoHasGit(io, repo_root);
     }
 
     fn recordRemovalAdapter(
@@ -66,14 +67,6 @@ pub const GitRemovalBackend = struct {
         return .{ .git_commit = copy };
     }
 };
-
-/// True when `repo_root` itself is a git repository (not merely inside a parent work tree).
-fn repoHasGitMetadata(io: Io, repo_root: []const u8) bool {
-    const git_path = std.fs.path.join(std.heap.page_allocator, &.{ repo_root, ".git" }) catch return false;
-    defer std.heap.page_allocator.free(git_path);
-    _ = Io.Dir.cwd().statFile(io, git_path, .{}) catch return false;
-    return true;
-}
 
 fn runGit(io: Io, repo_root: []const u8, git_args: []const []const u8) ![]u8 {
     var argv = std.ArrayListUnmanaged([]const u8).empty;

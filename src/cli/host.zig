@@ -7,7 +7,7 @@ const persona_manifest = @import("persona_manifest.zig");
 const extension_run = @import("extension_run.zig");
 const loader_mod = @import("../adapters/fs/loader.zig");
 const ignore_mod = @import("../adapters/git/ignore.zig");
-const cache_mod = @import("../adapters/cache/latticedb_cache.zig");
+const cache_mod = @import("../adapters/cache/fits_cache.zig");
 const fits_registry_mod = @import("../adapters/fs/fits_registry.zig");
 const links_index_mod = @import("../adapters/fs/links_index.zig");
 const links_validate_mod = @import("../adapters/fs/links_validate.zig");
@@ -85,11 +85,7 @@ pub fn runCli(
             return;
         },
         .init => {
-            if (args_iter.next() != null) {
-                printUsage(resolved);
-                return error.InvalidArgv;
-            }
-            try init_repo_mod.run(allocator, io, init_repo_mod.default_repo_root);
+            try runInit(allocator, io, args_iter);
             return;
         },
         .new => {
@@ -192,6 +188,27 @@ fn ensureNodePrefixAllowed(resolved: *const ResolvedPersona, allocator: std.mem.
     }
 }
 
+fn runInit(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
+    var options: init_repo_mod.InitOptions = .{};
+    while (args.next()) |a| {
+        if (std.mem.eql(u8, a, "--no-interactive")) {
+            options.no_interactive = true;
+            continue;
+        }
+        if (std.mem.eql(u8, a, "--init-git")) {
+            options.init_git = true;
+            continue;
+        }
+        if (std.mem.eql(u8, a, "--edit-gitignore")) {
+            options.edit_gitignore = true;
+            continue;
+        }
+        std.debug.print("unknown init flag: {s}\n", .{a});
+        return error.InvalidArgv;
+    }
+    try init_repo_mod.run(allocator, io, init_repo_mod.default_repo_root, options);
+}
+
 fn runValidate(
     resolved: *const ResolvedPersona,
     allocator: std.mem.Allocator,
@@ -254,9 +271,9 @@ fn runValidate(
     const hook_snapshot = try hook_snapshot_builder.asInterface().build(allocator, bundles, link_edges);
     defer hook_snapshot.deinit(allocator);
 
-    const store_dir = try cache_mod.LatticeDbCache.resolveStoreDir(allocator, io, environ, ".");
+    const store_dir = try cache_mod.FitsCache.resolveStoreDir(allocator, io, environ, ".");
     defer allocator.free(store_dir);
-    var cache = try cache_mod.LatticeDbCache.open(allocator, io, store_dir);
+    var cache = try cache_mod.FitsCache.open(allocator, io, store_dir);
     defer cache.deinit();
 
     var deterministic_builder = graph_builder_mod.DeterministicGraphBuilder{};
@@ -406,9 +423,9 @@ fn runUpdate(
         return;
     }
 
-    const store_dir = try cache_mod.LatticeDbCache.resolveStoreDir(allocator, io, environ, ".");
+    const store_dir = try cache_mod.FitsCache.resolveStoreDir(allocator, io, environ, ".");
     defer allocator.free(store_dir);
-    var cache = try cache_mod.LatticeDbCache.open(allocator, io, store_dir);
+    var cache = try cache_mod.FitsCache.open(allocator, io, store_dir);
     defer cache.deinit();
 
     if (check_only) {
@@ -755,7 +772,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
     if (resolved.is_default) {
         std.debug.print(
             \\Usage:
-            \\  {s} init
+            \\  {s} init [--no-interactive] [--init-git] [--edit-gitignore]
             \\  {s} validate [--dry-run] [--hooks-full-graph]
             \\  {s} rebuild-cache
             \\  {s} new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]

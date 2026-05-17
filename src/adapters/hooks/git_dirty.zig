@@ -2,6 +2,7 @@
 //! Does not read the working tree except checking for `.git`; all paths come from a subprocess.
 
 const std = @import("std");
+const git_repo = @import("../git/repo.zig");
 const links_index = @import("../fs/links_index.zig");
 const path_layout = @import("../fs/path_layout.zig");
 
@@ -35,7 +36,7 @@ pub const GitDirtyState = struct {
 
 /// Loads changed paths vs `HEAD` for narrowing incremental hook batches.
 pub fn load(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !GitDirtyState {
-    if (!repoHasGit(io, repo_root)) return .{};
+    if (!git_repo.repoHasGit(io, repo_root)) return .{};
 
     const result = std.process.run(allocator, io, .{
         .argv = &.{ "git", "-C", repo_root, "diff", "HEAD", "--name-only" },
@@ -107,11 +108,4 @@ fn extractCanonicalId(path_under_nodes: []const u8) ?[]const u8 {
         if (end == seg.len or seg[end] == ' ') return seg[0..end];
     }
     return null;
-}
-
-fn repoHasGit(io: Io, repo_root: []const u8) bool {
-    const git_path = std.fs.path.join(std.heap.page_allocator, &.{ repo_root, ".git" }) catch return false;
-    defer std.heap.page_allocator.free(git_path);
-    _ = Io.Dir.cwd().statFile(io, git_path, .{}) catch return false;
-    return true;
 }

@@ -26,7 +26,7 @@ Invoke `fits` with a subcommand. If you omit the subcommand or pass an unknown o
 
 ```text
 Usage:
-  fits init
+  fits init [--no-interactive] [--init-git] [--edit-gitignore]
   fits validate [--dry-run] [--hooks-full-graph]
   fits rebuild-cache
   fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
@@ -44,10 +44,19 @@ Usage:
 
 ### `fits init`
 
-Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty `node_types` and `link_types`), `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/latticedb/`, and `links/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `links/links.jsonc` already exists, the command prints an error and exits without changing files.
+Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty `node_types` and `link_types`), `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/cache/`, and `links/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `links/links.jsonc` already exists, the command prints an error and exits without changing files.
+
+When stdin is a TTY and you do not pass `--no-interactive`, `fits init` may also:
+
+- Ask to run `git init` if there is no `.git` at the repo root.
+- Ask to append `.fits/cache/` to `.gitignore` if a git repo already exists; otherwise it appends that line without prompting (so a new repo is ready to ignore machine-local cache data).
+
+Use `--init-git` or `--edit-gitignore` to perform those steps without prompts (including in CI with `--no-interactive`). Only the cache directory is gitignored; `.fits/registry.json` and other fits metadata remain trackable.
 
 ```sh
 fits init
+fits init --no-interactive
+fits init --init-git --edit-gitignore
 ```
 
 ### `fits validate`
@@ -64,7 +73,7 @@ fits validate
 
 ### `fits rebuild-cache`
 
-Clears hook fingerprint entries in `.fits/latticedb/` (keys prefixed with `hooks:`), then runs configured validate hooks on the **full graph** and writes fresh fingerprints. Does not run built-in validators or clear the update-check timestamp. If hooks are disabled, only the clear step runs.
+Clears hook fingerprint entries in `.fits/cache/` (keys prefixed with `hooks:`), then runs configured validate hooks on the **full graph** and writes fresh fingerprints. Does not run built-in validators or clear the update-check timestamp. If hooks are disabled, only the clear step runs.
 
 ```sh
 fits rebuild-cache
@@ -228,7 +237,7 @@ create_folder = true
 create_folder = true
 ```
 
-Last-check time is stored in the LatticeDB cache (`.fits/latticedb/` in a repository that uses `fits`, or `~/.fits/latticedb/` globally).
+Last-check time is stored in the fits cache (`.fits/cache/` in a repository that uses `fits`, or `~/.fits/cache/` globally).
 
 Set `FITS_NO_UPDATE_CHECK=1` to disable background checks. For private repos, set `FITS_GITHUB_TOKEN` or `GITHUB_TOKEN`.
 

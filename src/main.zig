@@ -44,7 +44,7 @@ test {
     _ = @import("adapters/fs/fits_registry.zig");
     _ = @import("adapters/fs/registry_validate.zig");
     _ = @import("adapters/fs/fits_config.zig");
-    _ = @import("adapters/cache/latticedb_cache.zig");
+    _ = @import("adapters/cache/fits_cache.zig");
     _ = @import("adapters/github/release.zig");
     _ = @import("app/update.zig");
     _ = @import("app/new_link.zig");
