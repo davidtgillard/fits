@@ -31,10 +31,12 @@ timeout_secs = 120
 
 ```sh
 fits validate
+fits validate --dry-run
 fits validate --hooks-full
 fits validate --no-hooks-incremental
 ```
 
+- **`--dry-run`:** Run validation and hooks as usual but do not write hook fingerprint entries to the LatticeDB cache.
 - **`--hooks-full`:** Ignore incremental optimization: every graph object row relevant to hooks is considered for hook payloads (still subject to `max_request_bytes`).
 - **`--no-hooks-incremental`:** Disable fingerprint-based skipping (same as a full refresh for the cache).
 

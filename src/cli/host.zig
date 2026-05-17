@@ -191,6 +191,7 @@ fn runValidate(
 ) !void {
     var hooks_full = false;
     var hooks_incremental = true;
+    var dry_run = false;
     while (args.next()) |a| {
         if (std.mem.eql(u8, a, "--hooks-full")) {
             hooks_full = true;
@@ -198,6 +199,10 @@ fn runValidate(
         }
         if (std.mem.eql(u8, a, "--no-hooks-incremental")) {
             hooks_incremental = false;
+            continue;
+        }
+        if (std.mem.eql(u8, a, "--dry-run")) {
+            dry_run = true;
             continue;
         }
         std.debug.print("unknown validate flag: {s}\n", .{a});
@@ -307,6 +312,7 @@ fn runValidate(
         &hook_cfg,
         hooks_full,
         hooks_incremental,
+        dry_run,
         run_id,
         git_head_opt,
     );
@@ -746,7 +752,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
         std.debug.print(
             \\Usage:
             \\  {s} init
-            \\  {s} validate [--hooks-full] [--no-hooks-incremental]
+            \\  {s} validate [--dry-run] [--hooks-full] [--no-hooks-incremental]
             \\  {s} new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
             \\  {s} new link <LINK_TYPE> <IN_ID> <OUT_ID>
             \\  {s} register node-type <NODE_PREFIX> [--create-folder]

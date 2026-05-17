@@ -16,6 +16,8 @@ const lattice = @import("../adapters/cache/latticedb_cache.zig");
 const Io = std.Io;
 
 /// Runs graph-node and/or link hooks and returns owned findings (empty when disabled).
+///
+/// When `dry_run` is true, successful hook runs do not persist fingerprint entries to the cache.
 pub fn runHooks(
     allocator: std.mem.Allocator,
     io: Io,
@@ -28,6 +30,7 @@ pub fn runHooks(
     cfg: *const hooks_config.HooksConfig,
     hooks_full: bool,
     hooks_incremental: bool,
+    dry_run: bool,
     run_id: []const u8,
     git_head: ?[]const u8,
 ) ![]validation.Finding {
@@ -87,7 +90,7 @@ pub fn runHooks(
                                 try out.appendSlice(allocator, batch);
                             } else {
                                 try hook_protocol.appendFindingsFromHookResponseJson(allocator, rh.stdout, "nodes", &out);
-                                try persistNodeFingerprints(allocator, cache, cfg.nodes_argv, work_objs);
+                                if (!dry_run) try persistNodeFingerprints(allocator, cache, cfg.nodes_argv, work_objs);
                             }
                         },
                         else => {
@@ -153,7 +156,7 @@ pub fn runHooks(
                                 try out.appendSlice(allocator, batch);
                             } else {
                                 try hook_protocol.appendFindingsFromHookResponseJson(allocator, rh.stdout, "links", &out);
-                                try persistLinkFingerprints(allocator, cache, cfg.links_argv, work_rows);
+                                if (!dry_run) try persistLinkFingerprints(allocator, cache, cfg.links_argv, work_rows);
                             }
                         },
                         else => {
