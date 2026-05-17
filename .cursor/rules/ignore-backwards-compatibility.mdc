@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+
+# Don't Worry about Backwards Compatibility
+
+`fits` has not been released and is still under very active development; don't worry anywhere in code or docs about backwards compatibility.
