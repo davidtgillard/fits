@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const graph = @import("../../domain/graph.zig");
+const graph_json = @import("graph_json.zig");
 const graph_subgraph = @import("../../domain/graph_subgraph.zig");
 const hook_protocol = @import("../../domain/hook_protocol.zig");
 const fits_registry = @import("../fs/fits_registry.zig");
@@ -54,27 +55,7 @@ pub fn nodeRequestJson(
     try root.put(a, "registry", reg_val);
 
     var graph_o: ObjectMap = .empty;
-    var nodes_a = std.json.Array.init(a);
-    for (sub.nodes) |n| {
-        var no: ObjectMap = .empty;
-        try no.put(a, "id", .{ .string = n.id });
-        try nodes_a.append(.{ .object = no });
-    }
-    var edges_a = std.json.Array.init(a);
-    for (sub.edges) |e| {
-        var eo: ObjectMap = .empty;
-        const kind: []const u8 = switch (e.kind) {
-            .references => "references",
-            .registered_link => "registered_link",
-        };
-        try eo.put(a, "from_id", .{ .string = e.from_id });
-        try eo.put(a, "to_id", .{ .string = e.to_id });
-        try eo.put(a, "kind", .{ .string = kind });
-        try eo.put(a, "link_type", .{ .string = e.link_type });
-        try edges_a.append(.{ .object = eo });
-    }
-    try graph_o.put(a, "nodes", .{ .array = nodes_a });
-    try graph_o.put(a, "edges", .{ .array = edges_a });
+    try graph_json.appendGraphObject(a, &graph_o, &sub);
     try root.put(a, "graph", .{ .object = graph_o });
 
     var work_o: ObjectMap = .empty;
@@ -138,27 +119,7 @@ pub fn linkRequestJson(
     try root.put(a, "registry", reg_val);
 
     var graph_o: ObjectMap = .empty;
-    var nodes_a = std.json.Array.init(a);
-    for (sub.nodes) |n| {
-        var no: ObjectMap = .empty;
-        try no.put(a, "id", .{ .string = n.id });
-        try nodes_a.append(.{ .object = no });
-    }
-    var edges_a = std.json.Array.init(a);
-    for (sub.edges) |e| {
-        var eo: ObjectMap = .empty;
-        const kind: []const u8 = switch (e.kind) {
-            .references => "references",
-            .registered_link => "registered_link",
-        };
-        try eo.put(a, "from_id", .{ .string = e.from_id });
-        try eo.put(a, "to_id", .{ .string = e.to_id });
-        try eo.put(a, "kind", .{ .string = kind });
-        try eo.put(a, "link_type", .{ .string = e.link_type });
-        try edges_a.append(.{ .object = eo });
-    }
-    try graph_o.put(a, "nodes", .{ .array = nodes_a });
-    try graph_o.put(a, "edges", .{ .array = edges_a });
+    try graph_json.appendGraphObject(a, &graph_o, &sub);
     try root.put(a, "graph", .{ .object = graph_o });
 
     var work_o: ObjectMap = .empty;

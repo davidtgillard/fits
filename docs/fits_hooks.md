@@ -38,6 +38,10 @@ fits validate --hooks-full-graph
 - **`--dry-run`:** Run validation and hooks as usual but do not write hook fingerprint entries to the fits cache.
 - **`--hooks-full-graph`:** Include every node and link in hook payloads; skip git narrowing and fingerprint-based skipping (still subject to `max_request_bytes`).
 
+## Inspecting the graph
+
+`fits output-graph` prints the hook-protocol `graph` object (nodes + edges) for the full repo snapshot to stdout—the same structural view hooks receive under full-graph scope, without `work` file payloads. Use `--pretty-print` for indented JSON.
+
 ## Incremental behavior
 
 When incremental mode is on (default `fits validate`, without `--hooks-full-graph`):

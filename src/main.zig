@@ -74,6 +74,9 @@ test {
     _ = @import("adapters/hooks/hook_request.zig");
     _ = @import("app/hooks_validate.zig");
     _ = @import("app/rebuild_cache.zig");
+    _ = @import("app/output_graph.zig");
+    _ = @import("adapters/hooks/graph_json.zig");
+    _ = @import("test/output_graph_functional.zig");
     _ = @import("cli/persona_manifest.zig");
     _ = @import("adapters/fs/registry_snapshot.zig");
 }

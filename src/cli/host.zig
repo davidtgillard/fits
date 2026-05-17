@@ -27,6 +27,7 @@ const hooks_validate_mod = @import("../app/hooks_validate.zig");
 const hooks_config_mod = @import("../adapters/fs/hooks_config.zig");
 const init_repo_mod = @import("../app/init_repo.zig");
 const rebuild_cache_mod = @import("../app/rebuild_cache.zig");
+const output_graph_mod = @import("../app/output_graph.zig");
 const registry_snapshot = @import("../adapters/fs/registry_snapshot.zig");
 const persona_install = @import("../adapters/fs/persona_install.zig");
 
@@ -85,6 +86,10 @@ pub fn runCli(
             try rebuild_cache_mod.run(resolved, allocator, io, environ);
             return;
         },
+        .output_graph => {
+            try runOutputGraph(resolved, allocator, io, args_iter);
+            return;
+        },
         .init => {
             try runInit(allocator, io, args_iter);
             return;
@@ -118,6 +123,7 @@ fn parseCommand(name: []const u8) ?Command {
     if (std.mem.eql(u8, name, "init")) return .init;
     if (std.mem.eql(u8, name, "validate")) return .validate;
     if (std.mem.eql(u8, name, "rebuild-cache")) return .rebuild_cache;
+    if (std.mem.eql(u8, name, "output-graph")) return .output_graph;
     if (std.mem.eql(u8, name, "new")) return .new;
     if (std.mem.eql(u8, name, "rm")) return .rm;
     if (std.mem.eql(u8, name, "register")) return .register;
@@ -187,6 +193,24 @@ fn ensureNodePrefixAllowed(resolved: *const ResolvedPersona, allocator: std.mem.
         std.debug.print("id prefix '{s}' is not part of persona '{s}' schema\n", .{ node_prefix, resolved.id });
         return error.UnknownIdPrefix;
     }
+}
+
+fn runOutputGraph(
+    resolved: *const ResolvedPersona,
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    args: anytype,
+) !void {
+    var options: output_graph_mod.Options = .{};
+    while (args.next()) |a| {
+        if (std.mem.eql(u8, a, "--pretty-print")) {
+            options.pretty_print = true;
+            continue;
+        }
+        std.debug.print("unknown output-graph flag: {s}\n", .{a});
+        return error.InvalidArgv;
+    }
+    try output_graph_mod.run(resolved, allocator, io, ".", options);
 }
 
 fn runInit(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
@@ -776,6 +800,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
             \\  {s} init [--no-interactive] [--init-git] [--edit-gitignore]
             \\  {s} validate [--dry-run] [--hooks-full-graph]
             \\  {s} rebuild-cache
+            \\  {s} output-graph [--pretty-print]
             \\  {s} new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
             \\  {s} new link <LINK_TYPE> <IN_ID> <OUT_ID>
             \\  {s} register node-type <NODE_PREFIX> [--create-folder]
@@ -790,7 +815,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
             \\  {s} update [--check]
             \\  {s} version
             \\
-        , .{ name, name, name, name, name, name, name, name, name, name, name, name, name, name, name, name });
+        , .{ name, name, name, name, name, name, name, name, name, name, name, name, name, name, name, name, name });
         return;
     }
     const m = resolved.manifest.?;

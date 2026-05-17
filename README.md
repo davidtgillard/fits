@@ -45,6 +45,7 @@ Usage:
   fits init [--no-interactive] [--init-git] [--edit-gitignore]
   fits validate [--dry-run] [--hooks-full-graph]
   fits rebuild-cache
+  fits output-graph [--pretty-print]
   fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
   fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
   fits rm <NODE_ID or LINK_ID>
@@ -93,6 +94,15 @@ Clears hook fingerprint entries in `.fits/cache/` (keys prefixed with `hooks:`),
 
 ```sh
 fits rebuild-cache
+```
+
+### `fits output-graph`
+
+Loads the repo graph (same snapshot as validate hooks use) and writes the hook-protocol **`graph`** object to **stdout** as JSON: `nodes` (ids only) and `edges` (registered links). Does not include hook `work` payloads, registry, or run metadata. Output is minified by default; pass `--pretty-print` for indented JSON.
+
+```sh
+fits output-graph
+fits output-graph --pretty-print
 ```
 
 ### `fits register`
