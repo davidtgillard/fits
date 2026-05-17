@@ -24,7 +24,7 @@ pub fn run(
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
-    const obj_prefs = try reg.objPrefixSlice(allocator);
+    const obj_prefs = try reg.idPrefixSlice(allocator);
     defer allocator.free(obj_prefs);
     const link_prefs = try reg.linkTypeSlice(allocator);
     defer allocator.free(link_prefs);
@@ -45,14 +45,14 @@ fn runRemoveNodeOnly(
     obj_name: []const u8,
     reg: *fits_registry.Registry,
 ) !void {
-    const prefix_slice = try reg.objPrefixSlice(allocator);
+    const prefix_slice = try reg.idPrefixSlice(allocator);
     defer allocator.free(prefix_slice);
 
     const parsed = instance_id.parseNodeName(obj_name, prefix_slice) orelse return error.InvalidObjName;
     const obj_prefix = parsed.node_prefix;
     const n = parsed.n;
 
-    const next_val = reg.nextForObjPrefix(obj_prefix) orelse return error.UnknownObjPrefix;
+    const next_val = reg.nextForIdPrefix(obj_prefix) orelse return error.UnknownIdPrefix;
     if (n == 0 or n >= next_val) return error.NotInIssuedRange;
     if (reg.isTombstoned(obj_prefix, n)) return error.AlreadyTombstoned;
 

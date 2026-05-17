@@ -5,24 +5,17 @@
   "description": "Machine-owned allocation state at .fits/registry.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["description", "version", "kind", "prefixes"],
+  "required": ["description", "version", "kind", "node_types"],
   "properties": {
     "description": {
       "type": "string",
-      "anyOf": [
-        {
-          "const": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI."
-        },
-        {
-          "const": "Tracks registered object type prefixes, link types, numeric id counters, and tombstones for objects and links. Do not edit by hand; use the fits CLI."
-        }
-      ]
+      "const": "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI."
     },
     "version": { "const": 1 },
-    "kind": { "const": "fits-registry-v1" },
-    "prefixes": {
+    "kind": { "const": "fits-registry" },
+    "node_types": {
       "type": "array",
-      "items": { "$ref": "#/$defs/prefix" }
+      "items": { "$ref": "#/$defs/nodeType" }
     },
     "link_types": {
       "type": "array",
@@ -31,7 +24,7 @@
     }
   },
   "$defs": {
-    "objPrefix": {
+    "typeName": {
       "type": "string",
       "minLength": 1,
       "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
@@ -58,12 +51,24 @@
         }
       }
     },
-    "prefix": {
+    "nodeTypeAbstract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["obj_prefix", "next"],
+      "required": ["type", "abstract"],
       "properties": {
-        "obj_prefix": { "$ref": "#/$defs/objPrefix" },
+        "type": { "$ref": "#/$defs/typeName" },
+        "abstract": { "const": true }
+      }
+    },
+    "nodeTypeConcrete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "extends", "next"],
+      "properties": {
+        "type": { "$ref": "#/$defs/typeName" },
+        "abstract": { "const": false },
+        "id_prefix": { "$ref": "#/$defs/typeName" },
+        "extends": { "$ref": "#/$defs/typeName" },
         "next": { "$ref": "#/$defs/nextCounter" },
         "tombstones": {
           "type": "array",
@@ -72,14 +77,20 @@
         }
       }
     },
+    "nodeType": {
+      "oneOf": [
+        { "$ref": "#/$defs/nodeTypeAbstract" },
+        { "$ref": "#/$defs/nodeTypeConcrete" }
+      ]
+    },
     "linkType": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["link_type", "in_obj_prefix", "out_obj_prefix", "next"],
+      "required": ["link_type", "in_type", "out_type", "next"],
       "properties": {
-        "link_type": { "$ref": "#/$defs/objPrefix" },
-        "in_obj_prefix": { "$ref": "#/$defs/objPrefix" },
-        "out_obj_prefix": { "$ref": "#/$defs/objPrefix" },
+        "link_type": { "$ref": "#/$defs/typeName" },
+        "in_type": { "$ref": "#/$defs/typeName" },
+        "out_type": { "$ref": "#/$defs/typeName" },
         "next": { "$ref": "#/$defs/nextCounter" },
         "tombstones": {
           "type": "array",

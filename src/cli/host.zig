@@ -176,9 +176,9 @@ fn ensureNodePrefixAllowed(resolved: *const ResolvedPersona, allocator: std.mem.
     const m = resolved.manifest.?;
     var schema = try registry_snapshot.loadTypeSchema(allocator, io, resolved.package_root, m.snapshot_rel);
     defer schema.deinit(allocator);
-    if (!registry_snapshot.schemaHasObjPrefix(&schema, node_prefix)) {
-        std.debug.print("node type '{s}' is not part of persona '{s}' schema\n", .{ node_prefix, resolved.id });
-        return error.UnknownObjPrefix;
+    if (!registry_snapshot.schemaHasIdPrefix(&schema, node_prefix)) {
+        std.debug.print("id prefix '{s}' is not part of persona '{s}' schema\n", .{ node_prefix, resolved.id });
+        return error.UnknownIdPrefix;
     }
 }
 
@@ -239,10 +239,10 @@ fn runValidate(
 
     const ignore = ignore_mod.IgnoreMatcher.init(".");
     const loader = loader_mod.Loader.init(ignore);
-    const prefixes = try reg.objPrefixSlice(allocator);
-    defer allocator.free(prefixes);
+    const id_prefixes = try reg.idPrefixSlice(allocator);
+    defer allocator.free(id_prefixes);
 
-    const bundles = try loader.loadNodeBundles(allocator, io, ".", "objects", prefixes);
+    const bundles = try loader.loadNodeBundles(allocator, io, ".", "objects", id_prefixes);
     defer allocator.free(bundles);
 
     var hook_snapshot_builder = graph_builder_mod.DeterministicGraphBuilder{};
@@ -542,24 +542,35 @@ fn runRegister(allocator: std.mem.Allocator, io: std.Io, args: anytype) !void {
         if (std.mem.eql(u8, sub, "obj-type") and !builtin.is_test) {
             std.debug.print("warning: `fits register obj-type` is deprecated; use `fits register node-type`\n", .{});
         }
-        var create_folder = false;
-        var prefix: ?[]const u8 = null;
+        var opts: register_mod.NodeTypeOpts = .{};
+        var type_name: ?[]const u8 = null;
         while (args.next()) |arg| {
             if (std.mem.eql(u8, arg, "--create-folder")) {
-                create_folder = true;
+                opts.create_folder = true;
                 continue;
             }
-            if (prefix != null) {
+            if (std.mem.eql(u8, arg, "--abstract")) {
+                opts.abstract = true;
+                continue;
+            }
+            if (std.mem.eql(u8, arg, "--extends")) {
+                opts.extends = args.next() orelse {
+                    printRegisterUsage();
+                    return error.InvalidArgv;
+                };
+                continue;
+            }
+            if (type_name != null) {
                 printRegisterUsage();
                 return error.InvalidArgv;
             }
-            prefix = arg;
+            type_name = arg;
         }
-        const p = prefix orelse {
+        const tn = type_name orelse {
             printRegisterUsage();
             return error.InvalidArgv;
         };
-        try register_mod.runNodeType(allocator, io, register_mod.default_repo_root, p, create_folder);
+        try register_mod.runNodeType(allocator, io, register_mod.default_repo_root, tn, opts);
         return;
     }
 

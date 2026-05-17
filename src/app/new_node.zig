@@ -46,7 +46,7 @@ pub fn run(
     obj_prefix: []const u8,
     options: NewOptions,
 ) !void {
-    try fits_registry.validateObjPrefix(obj_prefix);
+    try fits_registry.validateTypeName(obj_prefix);
     for (options.title_words) |w| {
         try validateTitleWord(w);
     }
@@ -64,7 +64,7 @@ pub fn run(
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
-    if (!reg.hasObjPrefix(obj_prefix)) return error.UnknownObjPrefix;
+    if (!reg.hasIdPrefix(obj_prefix)) return error.UnknownIdPrefix;
 
     const n = try reg.allocateNextNumeric(obj_prefix);
     try reg.save(io, repo_root);

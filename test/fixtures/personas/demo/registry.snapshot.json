@@ -1,9 +1,10 @@
 {
   "description": "Demo persona snapshot for tests.",
   "version": 1,
-  "kind": "fits-registry-v1",
-  "prefixes": [
-    { "obj_prefix": "REQ", "next": 1 }
+  "kind": "fits-registry",
+  "node_types": [
+    { "type": "req", "abstract": true },
+    { "type": "REQ", "extends": "req", "id_prefix": "REQ" }
   ],
   "link_types": []
 }

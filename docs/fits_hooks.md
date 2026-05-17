@@ -23,7 +23,7 @@ timeout_secs = 120
 
 - **`enabled`:** Hooks run only if this is `true` **and** you pass **`--hooks`** on the CLI.
 - **`nodes_command` / `links_command`:** JSON-array lines (same format as JSON array literals): full argv; first element is the executable.
-- **`objects_command`:** Legacy alias for **`nodes_command`** when `nodes_command` is omitted (same argv semantics as before v2 protocol rename).
+- **`objects_command`:** Alias for **`nodes_command`** when `nodes_command` is omitted (same argv semantics).
 - **`max_request_bytes`:** Rejects oversized request bodies before spawning (default 32 MiB).
 - **`timeout_secs`:** Wall-clock I/O timeout for the child (`0` = host default / no bound).
 

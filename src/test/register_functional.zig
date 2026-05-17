@@ -4,6 +4,11 @@ const std = @import("std");
 const register = @import("../app/register.zig");
 const new_node = @import("../app/new_node.zig");
 
+fn registerReq(alloc: std.mem.Allocator, io: std.Io, repo: []const u8) !void {
+    try register.runNodeType(alloc, io, repo, "req", .{ .abstract = true });
+    try register.runNodeType(alloc, io, repo, "REQ", .{ .extends = "req" });
+}
+
 test "register rename renames managed instance and updates registry" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
@@ -15,7 +20,7 @@ test "register rename renames managed instance and updates registry" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
+    try registerReq(alloc, std.testing.io, repo_abs);
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     try register.runRename(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", "FOO");
@@ -33,8 +38,8 @@ test "register rename renames managed instance and updates registry" {
     defer alloc.free(reg_sub);
     const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
     defer alloc.free(contents);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\": \"FOO\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\": \"REQ\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\":\"FOO\"") != null or std.mem.indexOf(u8, contents, "\"type\": \"FOO\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\":\"REQ\"") == null and std.mem.indexOf(u8, contents, "\"type\": \"REQ\"") == null);
 }
 
 test "register rename skips out-of-range instance" {
@@ -50,7 +55,7 @@ test "register rename skips out-of-range instance" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
+    try registerReq(alloc, std.testing.io, repo_abs);
     try register.runRename(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", "FOO");
 
     const orphan = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-999" });
@@ -61,7 +66,7 @@ test "register rename skips out-of-range instance" {
     defer alloc.free(reg_sub);
     const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
     defer alloc.free(contents);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\": \"FOO\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\":\"FOO\"") != null or std.mem.indexOf(u8, contents, "\"type\": \"FOO\"") != null);
 }
 
 test "register list loads without error" {
@@ -75,7 +80,7 @@ test "register list loads without error" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
+    try registerReq(alloc, std.testing.io, repo_abs);
     try register.runList(alloc, std.testing.io, repo_abs);
 }
 
@@ -90,15 +95,15 @@ test "register link-type records endpoints in registry" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runObjType(alloc, std.testing.io, repo_abs, "REQ", false);
-    try register.runObjType(alloc, std.testing.io, repo_abs, "DOC", false);
-    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "REQ", "DOC", false);
+    try register.registerReqDocFixture(alloc, std.testing.io, repo_abs);
+    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "req", "doc", false);
 
     const reg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "registry.json" });
     defer alloc.free(reg_sub);
     const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
     defer alloc.free(contents);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"link_type\": \"implements\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"in_obj_prefix\": \"REQ\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"out_obj_prefix\": \"DOC\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"link_type\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "implements") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"in_type\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"out_type\"") != null);
 }

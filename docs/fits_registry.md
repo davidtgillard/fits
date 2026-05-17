@@ -1,16 +1,16 @@
 # fits registry (`.fits/registry.json`)
 
-The registry records which **node type** prefixes exist (JSON field `obj_prefix`), which **link types** exist between those prefixes, and which numeric instance ids have been issued or tombstoned for each node type and link type. `fits` commands read and update `.fits/registry.json`; **do not edit it by hand**.
+The registry records **node types** (abstract and concrete), **link types** (endpoint type names plus counters), and which numeric instance ids have been issued or tombstoned. `fits` commands read and update `.fits/registry.json`; **do not edit it by hand**.
 
 For how link instances are stored and edited, see [fits links](fits_links.md).
 
 ## Schema
 
-The on-disk shape is defined by [schemas/registry.schema.json](../schemas/registry.schema.json) (JSON Schema draft 2020-12). The CLI validates every load against that contract and prints all structural problems, for example:
+The on-disk shape is defined by [schemas/registry.schema.json](../schemas/registry.schema.json) (JSON Schema draft 2020-12). The CLI validates every load against that contract and prints structural problems, for example:
 
 ```text
-.fits/registry.json: at $.kind: must be "fits-registry-v1", got "wrong"
-.fits/registry.json: at prefixes[0].next: must be an integer >= 1, got 0
+.fits/registry.json: at $.kind: must be "fits-registry", got "wrong"
+.fits/registry.json: at node_types[0].next: must be an integer >= 1, got 0
 ```
 
 Unknown properties are rejected (`additionalProperties: false` at each object level).
@@ -23,43 +23,44 @@ Every registry file is a single JSON object:
 |-------|-------|
 | `description` | Canonical notice (purpose and “do not edit by hand”; written by the CLI) |
 | `version` | `1` |
-| `kind` | `"fits-registry-v1"` |
-| `prefixes` | array of node-type prefix entries |
-| `link_types` | optional array of link type entries (omitted or `[]` in older repos) |
+| `kind` | `"fits-registry"` |
+| `node_types` | array of abstract or concrete node type entries |
+| `link_types` | optional array of link type entries (omitted or `[]` when empty) |
 
 Example envelope:
 
 ```json
 {
-  "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
+  "description": "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
   "version": 1,
-  "kind": "fits-registry-v1",
-  "prefixes": [],
+  "kind": "fits-registry",
+  "node_types": [],
   "link_types": []
 }
 ```
 
-## Link type entries
+## Node types
+
+Node types are either **abstract** (uninstantiable, no `objects/` allocation) or **concrete** (instantiable via `{id_prefix}-{n}`).
+
+### Abstract entry
 
 ```json
-{
-  "link_type": "implements",
-  "in_obj_prefix": "REQ",
-  "out_obj_prefix": "DOC",
-  "next": 2
-}
+{ "type": "req", "abstract": true }
 ```
 
-- `link_type`: name of the link relation (same character rules as node-type prefixes; must not collide with any `obj_prefix`).
-- `in_obj_prefix` / `out_obj_prefix`: registered node-type prefixes. Instances link **from** the `out` node **to** the `in` node (see [fits_links.md](fits_links.md)).
-- `next`: next numeric suffix for this link type (same interpretation as `prefixes[].next`).
-- `tombstones`: optional, same shape as for node-type prefixes.
+- `type`: registry name (ASCII letter, then letters, digits, or `_`).
+- No `extends`, `id_prefix`, `next`, or `tombstones`.
 
-## Prefix entries
+Register with: `fits register node-type req --abstract`
+
+### Concrete entry
 
 ```json
 {
-  "obj_prefix": "REQ",
+  "type": "sys",
+  "extends": "req",
+  "id_prefix": "sys",
   "next": 4,
   "tombstones": [
     { "n": 2, "git_commit": "a1b2c3d4e5f6789012345678901234567890abcd" },
@@ -68,12 +69,54 @@ Example envelope:
 }
 ```
 
-- `obj_prefix`: node type prefix (ASCII letter, then letters, digits, or `_`).
+- `type`: registry name for this concrete type (must be unique among all `type`, `id_prefix`, and `link_type` names).
+- `extends`: required; must name an **abstract** parent (concrete cannot extend concrete).
+- `id_prefix`: optional; defaults to `type` when omitted. Used in instance ids (`sys-1`) and for `fits new node <ID_PREFIX>`.
 - `next`: next numeric suffix to allocate (integer ≥ 1). Issued ids are `1 .. next-1`.
-- `tombstones`: optional array (may be omitted; treated as empty). Each tombstone has required `n` (integer ≥ 1) and optional `git_commit` (40 hexadecimal characters). JSON `null` for `git_commit` is accepted when present (as emitted by the CLI writer).
+- `tombstones`: optional (may be omitted; treated as empty). Same shape as link type tombstones.
+
+Register with: `fits register node-type sys --extends req`
+
+With `--create-folder`, `fits` records `create_folder = true` under `[obj_types.<id_prefix>]` in `.fits/fits_config.toml`.
+
+### Type names vs id prefixes
+
+- **Abstract** types have only a `type` name (e.g. `req`). They are not valid arguments to `fits new node`.
+- **Concrete** types have a `type` and an `id_prefix` (often the same string, e.g. `REQ`). `fits new node REQ` allocates `REQ-1`, `REQ-2`, …
+- Multiple concrete types may **extend** the same abstract type (e.g. `sys` and `cus` both extend `req`), each with its own `id_prefix` and counter.
+
+## Link type entries
+
+```json
+{
+  "link_type": "traces",
+  "in_type": "req",
+  "out_type": "DOC",
+  "next": 2
+}
+```
+
+- `link_type`: name of the link relation (same character rules as type names; must not collide with any node `type`, `id_prefix`, or other `link_type`).
+- `in_type` / `out_type`: registered **type names** (abstract or concrete), not id prefixes. Instances link **from** the `out` node **to** the `in` node (see [fits_links.md](fits_links.md)).
+- Endpoint validation resolves types: an abstract endpoint accepts any concrete node whose `extends` chain includes that abstract; a concrete endpoint requires the node’s concrete `type` (and matching `id_prefix` on the instance id).
+- `next` / `tombstones`: same interpretation as for concrete node types.
+
+Register with: `fits register link-type traces req DOC` (type names, not id prefixes).
 
 ## Load-time behavior (beyond JSON Schema)
 
-- **Missing file**: treated as an empty registry (no prefixes).
-- **Duplicate prefix rows**: multiple entries with the same `obj_prefix` are merged; `next` becomes the maximum of the duplicates. Tombstones are merged with a “richer wins” rule when both rows tombstone the same `n`.
-- **Semantic checks after structure**: allocation and tombstoning in memory still enforce registered prefixes, duplicate tombstones, and git commit format when recording removals.
+- **Missing file**: treated as an empty registry (no node types).
+- **Duplicate concrete rows** for the same `type`: merged; `next` becomes the maximum of the duplicates. Tombstones are merged with a “richer wins” rule when both rows tombstone the same `n`.
+- **Semantic checks after structure**: `extends` must reference an existing abstract type; global uniqueness of `type`, all `id_prefix` values, and `link_type` names; allocation and tombstoning reject abstract types and unknown id prefixes.
+
+## Rename and remove
+
+### `fits register rename-type`
+
+- **Abstract** rename: updates the abstract `type`, rewrites `extends` on all concrete children, and rewrites `in_type` / `out_type` on link types that referenced the old name. No `objects/` renames.
+- **Concrete** rename: updates the registry `type` and link endpoint type strings. When `id_prefix` equals the old `type`, `id_prefix` and filesystem basenames under `objects/` are renamed together; when `id_prefix` differs from `type`, only registry and link endpoint strings change (files keep their existing ids).
+
+### `fits register rm`
+
+- **Concrete** node type: same rules as before (instances, optional `--force`, `--cascade` for dangling links).
+- **Abstract** node type: without children, removal is like an empty type. With concrete children or link types referencing the abstract name, removal requires `--force --cascade`, which removes child concrete types (and their instances), link types that reference the abstract name, dangling link rows for child id prefixes, then the abstract entry.

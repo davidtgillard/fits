@@ -8,6 +8,7 @@ const ObjectMap = std.json.ObjectMap;
 
 const fits_registry = @import("fits_registry.zig");
 const instance_id = @import("../../domain/instance_id.zig");
+const node_type = @import("../../domain/node_type.zig");
 
 pub const schema_json = @embedFile("../../schemas/links.schema.json");
 
@@ -465,8 +466,8 @@ pub fn validateLinksAgainstRegistryRows(
     registry: *const fits_registry.Registry,
     rows: []const LinkRowView,
 ) void {
-    const obj_prefix_buf = registry.objPrefixSlice(report.allocator) catch return;
-    defer report.allocator.free(obj_prefix_buf);
+    const id_prefix_buf = registry.idPrefixSlice(report.allocator) catch return;
+    defer report.allocator.free(id_prefix_buf);
 
     for (rows, 0..) |row, i| {
         const lp = formatIndexedPath(report, "$", "links", i) catch return;
@@ -479,8 +480,8 @@ pub fn validateLinksAgainstRegistryRows(
             continue;
         }
 
-        const expected_in = registry.linkTypeInPrefix(row.link_type).?;
-        const expected_out = registry.linkTypeOutPrefix(row.link_type).?;
+        const expected_in = registry.linkTypeInType(row.link_type).?;
+        const expected_out = registry.linkTypeOutType(row.link_type).?;
 
         const parsed_link_n = instance_id.parseSuffixAfterPrefix(row.id, row.link_type) orelse {
             const fp = formatFieldPath(report, lp, "id") catch continue;
@@ -504,29 +505,29 @@ pub fn validateLinksAgainstRegistryRows(
             continue;
         }
 
-        const po = instance_id.parseNodeName(row.out, obj_prefix_buf) orelse {
+        const po = instance_id.parseNodeName(row.out, id_prefix_buf) orelse {
             const fp = formatFieldPath(report, lp, "out") catch continue;
             defer report.allocator.free(fp);
             pushIssueStatic(report, fp, "out is not a canonical issued node id");
             continue;
         };
-        if (!std.mem.eql(u8, po.node_prefix, expected_out)) {
+        if (!node_type.endpointMatchesType(registry, po.node_prefix, expected_out)) {
             const fp = formatFieldPath(report, lp, "out") catch continue;
             defer report.allocator.free(fp);
-            pushIssueStatic(report, fp, "out node-type prefix does not match registered out_obj_prefix for this link_type");
+            pushIssueStatic(report, fp, "out node does not match registered out_type for this link_type");
             continue;
         }
 
-        const pi = instance_id.parseNodeName(row.in, obj_prefix_buf) orelse {
+        const pi = instance_id.parseNodeName(row.in, id_prefix_buf) orelse {
             const fp = formatFieldPath(report, lp, "in") catch continue;
             defer report.allocator.free(fp);
             pushIssueStatic(report, fp, "in is not a canonical issued node id");
             continue;
         };
-        if (!std.mem.eql(u8, pi.node_prefix, expected_in)) {
+        if (!node_type.endpointMatchesType(registry, pi.node_prefix, expected_in)) {
             const fp = formatFieldPath(report, lp, "in") catch continue;
             defer report.allocator.free(fp);
-            pushIssueStatic(report, fp, "in node-type prefix does not match registered in_obj_prefix for this link_type");
+            pushIssueStatic(report, fp, "in node does not match registered in_type for this link_type");
             continue;
         }
 
@@ -546,8 +547,8 @@ fn validateIssuedObj(
     const fp = formatFieldPath(report, link_path, field) catch return;
     defer report.allocator.free(fp);
 
-    const next_o = registry.nextForObjPrefix(obj_prefix) orelse {
-        pushIssueStatic(report, fp, "unknown node prefix");
+    const next_o = registry.nextForIdPrefix(obj_prefix) orelse {
+        pushIssueStatic(report, fp, "unknown node id prefix");
         return;
     };
     if (n == 0 or n >= next_o) {

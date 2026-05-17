@@ -1,4 +1,4 @@
-//! Machine-owned allocation state for object ids under `.fits/`.
+//! Machine-owned allocation state for node and link ids under `.fits/`.
 //! Humans should not edit these files; the CLI owns create/update semantics,
 //! tombstones deleted numeric suffixes (with optional VCS refs), and monotonic `next` counters.
 
@@ -26,7 +26,7 @@ pub const TombstoneRefs = struct {
     git_commit: ?[]const u8 = null,
 };
 
-/// A tombstoned numeric suffix for a prefix (must never be reissued).
+/// A tombstoned numeric suffix for a concrete type id prefix (must never be reissued).
 pub const TombstoneEntry = struct {
     n: u64,
     git_commit: ?[]const u8 = null,
@@ -38,68 +38,83 @@ const TombstoneJson = struct {
     git_commit: ?[]const u8 = null,
 };
 
-/// JSON envelope written by [`Registry.save`].
-const RegistryJson = struct {
-    description: []const u8,
-    version: u32,
-    kind: []const u8,
-    prefixes: []PrefixJson,
-    link_types: []LinkTypeJson = &.{},
-};
 
 /// JSON link-type entry on disk.
 const LinkTypeJson = struct {
     link_type: []const u8,
-    in_obj_prefix: []const u8,
-    out_obj_prefix: []const u8,
+    in_type: []const u8,
+    out_type: []const u8,
     next: u64,
     tombstones: []TombstoneJson = &.{},
 };
 
-/// JSON prefix entry on disk.
-const PrefixJson = struct {
-    obj_prefix: []const u8,
+/// JSON abstract node-type entry on disk.
+const AbstractNodeTypeJson = struct {
+    type: []const u8,
+    abstract: bool = true,
+};
+
+/// JSON concrete node-type entry on disk.
+const ConcreteNodeTypeJson = struct {
+    type: []const u8,
+    extends: []const u8,
+    id_prefix: ?[]const u8 = null,
     next: u64,
     tombstones: []TombstoneJson = &.{},
 };
 
-/// In-memory registry: per-prefix monotonic counter and tombstone list.
+/// Parsed node-type row before dispatching to abstract vs concrete merge.
+const NodeTypeJson = struct {
+    type: []const u8,
+    abstract: bool = false,
+    id_prefix: ?[]const u8 = null,
+    extends: ?[]const u8 = null,
+    next: ?u64 = null,
+    tombstones: []TombstoneJson = &.{},
+};
+
+/// In-memory registry: node types (abstract/concrete) and link types.
 pub const Registry = struct {
     allocator: std.mem.Allocator,
-    prefixes: std.ArrayList(PrefixEntry) = .empty,
+    node_types: std.ArrayList(NodeTypeEntry) = .empty,
     link_types: std.ArrayList(LinkTypeEntry) = .empty,
 
-    /// Registered link type with endpoint object prefixes and allocation state.
-    pub const LinkTypeEntry = struct {
-        link_type: []const u8,
-        in_obj_prefix: []const u8,
-        out_obj_prefix: []const u8,
-        next: u64,
+    /// Registered node type (abstract or concrete).
+    pub const NodeTypeEntry = struct {
+        type: []const u8,
+        abstract: bool,
+        id_prefix: ?[]const u8 = null,
+        extends: ?[]const u8 = null,
+        next: u64 = 0,
         tombstones: std.ArrayList(TombstoneEntry) = .empty,
     };
 
-    /// Single prefix entry.
-    pub const PrefixEntry = struct {
-        obj_prefix: []const u8,
+    /// Registered link type with endpoint type names and allocation state.
+    pub const LinkTypeEntry = struct {
+        link_type: []const u8,
+        in_type: []const u8,
+        out_type: []const u8,
         next: u64,
         tombstones: std.ArrayList(TombstoneEntry) = .empty,
     };
 
     /// Frees duplicated strings and nested tombstone storage.
     pub fn deinit(self: *Registry) void {
-        for (self.prefixes.items) |*entry| {
-            self.allocator.free(entry.obj_prefix);
+        for (self.node_types.items) |*entry| {
+            self.allocator.free(entry.type);
+            if (entry.id_prefix) |p| self.allocator.free(p);
+            if (entry.extends) |e| self.allocator.free(e);
             for (entry.tombstones.items) |ts| {
                 if (ts.git_commit) |c| self.allocator.free(c);
             }
             entry.tombstones.deinit(self.allocator);
         }
-        self.prefixes.deinit(self.allocator);
+        self.node_types.deinit(self.allocator);
 
         for (self.link_types.items) |*entry| {
             self.allocator.free(entry.link_type);
-            self.allocator.free(entry.in_obj_prefix);
-            self.allocator.free(entry.out_obj_prefix);
+            self.allocator.free(entry.in_type);
+            self.allocator.free(entry.out_type);
             for (entry.tombstones.items) |ts| {
                 if (ts.git_commit) |c| self.allocator.free(c);
             }
@@ -110,13 +125,6 @@ pub const Registry = struct {
     }
 
     /// Loads registry from `repo_root`/.fits/registry.json`, or empty if missing.
-    ///
-    /// Parameters:
-    /// - `validation_out`: When non-null and validation fails, receives an owned [`registry_validate.ValidationReport`]
-    ///   the caller must [`registry_validate.ValidationReport.deinit`].
-    ///
-    /// Returns: an in-memory registry on success.
-    /// On failure: I/O errors, JSON parse errors, or [`error.RegistryInvalid`] when structural validation fails.
     pub fn load(
         allocator: std.mem.Allocator,
         io: Io,
@@ -147,7 +155,7 @@ pub const Registry = struct {
         }
         validation_report.deinit();
 
-        var parsed = try std.json.parseFromSlice(RegistryJson, allocator, contents, .{
+        var parsed = try std.json.parseFromSlice(RegistryJsonIn, allocator, contents, .{
             .ignore_unknown_fields = true,
         });
         defer parsed.deinit();
@@ -157,23 +165,25 @@ pub const Registry = struct {
         var reg: Registry = .{ .allocator = allocator };
         errdefer reg.deinit();
 
-        for (parsed.value.prefixes) |pj| {
-            try mergePrefix(&reg, pj.obj_prefix, pj.next, pj.tombstones);
+        for (parsed.value.node_types) |nj| {
+            try mergeNodeType(&reg, nj);
         }
 
         for (parsed.value.link_types) |lj| {
-            try mergeLinkType(&reg, lj.link_type, lj.in_obj_prefix, lj.out_obj_prefix, lj.next, lj.tombstones);
+            try mergeLinkType(&reg, lj.link_type, lj.in_type, lj.out_type, lj.next, lj.tombstones);
         }
 
-        for (reg.prefixes.items) |*entry| {
+        for (reg.node_types.items) |*entry| {
             sortTombstones(entry.tombstones.items);
         }
-        sortPrefixes(reg.prefixes.items);
+        sortNodeTypes(reg.node_types.items);
 
         for (reg.link_types.items) |*entry| {
             sortTombstones(entry.tombstones.items);
         }
         sortLinkTypes(reg.link_types.items);
+
+        try validateNodeTypeGraph(&reg);
         return reg;
     }
 
@@ -203,35 +213,49 @@ pub const Registry = struct {
         try cwd.rename(tmp_path, cwd, final_path, io);
     }
 
-    /// Serializes this registry as JSON (same shape as on-disk `.fits/registry.json`).
-    ///
-    /// Parameters:
-    /// - `self`: Registry to serialize.
-    ///
-    /// Returns: owned UTF-8 JSON; caller must free with [`Registry.allocator`].
     pub fn toJsonText(self: *Registry) ![]const u8 {
         return registryJsonSlice(self);
     }
 
-    pub fn hasObjPrefix(self: *const Registry, obj_prefix: []const u8) bool {
-        return findPrefixIndex(self.prefixes.items, obj_prefix) != null;
+    pub fn hasNodeType(self: *const Registry, type_name: []const u8) bool {
+        return findNodeTypeIndex(self.node_types.items, type_name) != null;
     }
 
-    pub fn nextForObjPrefix(self: *const Registry, obj_prefix: []const u8) ?u64 {
-        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return null;
-        return self.prefixes.items[idx].next;
+    pub fn isAbstractType(self: *const Registry, type_name: []const u8) bool {
+        const idx = findNodeTypeIndex(self.node_types.items, type_name) orelse return false;
+        return self.node_types.items[idx].abstract;
     }
 
-    /// Returns whether numeric suffix `n` is tombstoned for `obj_prefix`.
-    pub fn isTombstoned(self: *const Registry, obj_prefix: []const u8, n: u64) bool {
-        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return false;
-        return findTombstoneIndex(self.prefixes.items[idx].tombstones.items, n) != null;
+    pub fn hasIdPrefix(self: *const Registry, id_prefix: []const u8) bool {
+        return findNodeTypeIndexByIdPrefix(self.node_types.items, id_prefix) != null;
     }
 
-    /// Records a tombstone for issued suffix `n` with optional VCS refs.
-    pub fn tombstoneNumeric(self: *Registry, obj_prefix: []const u8, n: u64, refs: TombstoneRefs) !void {
-        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return error.UnknownObjPrefix;
-        if (findTombstoneIndex(self.prefixes.items[idx].tombstones.items, n) != null) return error.AlreadyTombstoned;
+    /// Deprecated name kept for incremental refactors; use [`hasIdPrefix`].
+    pub fn hasObjPrefix(self: *const Registry, id_prefix: []const u8) bool {
+        return self.hasIdPrefix(id_prefix);
+    }
+
+    pub fn idPrefixForType(self: *const Registry, type_name: []const u8) ?[]const u8 {
+        const idx = findNodeTypeIndex(self.node_types.items, type_name) orelse return null;
+        const entry = &self.node_types.items[idx];
+        if (entry.abstract) return null;
+        return entry.id_prefix;
+    }
+
+    pub fn nextForIdPrefix(self: *const Registry, id_prefix: []const u8) ?u64 {
+        const idx = findNodeTypeIndexByIdPrefix(self.node_types.items, id_prefix) orelse return null;
+        return self.node_types.items[idx].next;
+    }
+
+    pub fn isTombstoned(self: *const Registry, id_prefix: []const u8, n: u64) bool {
+        const idx = findNodeTypeIndexByIdPrefix(self.node_types.items, id_prefix) orelse return false;
+        return findTombstoneIndex(self.node_types.items[idx].tombstones.items, n) != null;
+    }
+
+    pub fn tombstoneNumeric(self: *Registry, id_prefix: []const u8, n: u64, refs: TombstoneRefs) !void {
+        const idx = findNodeTypeIndexByIdPrefix(self.node_types.items, id_prefix) orelse return error.UnknownIdPrefix;
+        if (self.node_types.items[idx].abstract) return error.AbstractNotInstantiable;
+        if (findTombstoneIndex(self.node_types.items[idx].tombstones.items, n) != null) return error.AlreadyTombstoned;
 
         var git_copy: ?[]const u8 = null;
         if (refs.git_commit) |c| {
@@ -239,48 +263,82 @@ pub const Registry = struct {
             git_copy = try self.allocator.dupe(u8, c);
         }
 
-        try self.prefixes.items[idx].tombstones.append(self.allocator, .{
+        try self.node_types.items[idx].tombstones.append(self.allocator, .{
             .n = n,
             .git_commit = git_copy,
         });
-        sortTombstones(self.prefixes.items[idx].tombstones.items);
+        sortTombstones(self.node_types.items[idx].tombstones.items);
     }
 
-    pub fn registerNewPrefix(self: *Registry, obj_prefix: []const u8) !void {
-        if (findLinkTypeIndex(self.link_types.items, obj_prefix) != null) return error.ObjPrefixCollidesWithLinkType;
-        if (findPrefixIndex(self.prefixes.items, obj_prefix) != null) return error.DuplicateObjPrefix;
-        const copy = try self.allocator.dupe(u8, obj_prefix);
+    pub fn registerAbstractType(self: *Registry, type_name: []const u8) !void {
+        try ensureNameAvailable(self, type_name);
+        const copy = try self.allocator.dupe(u8, type_name);
         errdefer self.allocator.free(copy);
-        try self.prefixes.append(self.allocator, .{ .obj_prefix = copy, .next = 1 });
+        try self.node_types.append(self.allocator, .{
+            .type = copy,
+            .abstract = true,
+        });
     }
 
-    /// Registers a new link type from `out_obj_prefix` objects to `in_obj_prefix` objects.
+    /// Registers a concrete type extending abstract `extends_type`.
     ///
     /// Parameters:
-    /// - `link_type`: Name for this link type (must not match any object type prefix).
-    /// - `in_obj_prefix`: Objects that receive incoming links (`IN`).
-    /// - `out_obj_prefix`: Objects that emit outgoing links (`OUT`).
+    /// - `type_name`: Registry type name.
+    /// - `extends_type`: Must name an existing abstract type.
+    /// - `id_prefix`: When null, defaults to `type_name`.
+    pub fn registerConcreteType(
+        self: *Registry,
+        type_name: []const u8,
+        extends_type: []const u8,
+        id_prefix: ?[]const u8,
+    ) !void {
+        const parent_idx = findNodeTypeIndex(self.node_types.items, extends_type) orelse return error.UnknownNodeType;
+        if (!self.node_types.items[parent_idx].abstract) return error.ExtendsNotAbstract;
+
+        try ensureNameAvailable(self, type_name);
+
+        const prefix = id_prefix orelse type_name;
+        if (findNodeTypeIndex(self.node_types.items, prefix) != null) return error.DuplicateIdPrefix;
+        if (findNodeTypeIndexByIdPrefix(self.node_types.items, prefix) != null) return error.DuplicateIdPrefix;
+        if (findLinkTypeIndex(self.link_types.items, prefix) != null) return error.IdPrefixCollidesWithLinkType;
+
+        const type_copy = try self.allocator.dupe(u8, type_name);
+        errdefer self.allocator.free(type_copy);
+        const prefix_copy = try self.allocator.dupe(u8, prefix);
+        errdefer self.allocator.free(prefix_copy);
+        const extends_copy = try self.allocator.dupe(u8, extends_type);
+        errdefer self.allocator.free(extends_copy);
+
+        try self.node_types.append(self.allocator, .{
+            .type = type_copy,
+            .abstract = false,
+            .id_prefix = prefix_copy,
+            .extends = extends_copy,
+            .next = 1,
+        });
+    }
+
     pub fn registerNewLinkType(
         self: *Registry,
         link_type: []const u8,
-        in_obj_prefix: []const u8,
-        out_obj_prefix: []const u8,
+        in_type: []const u8,
+        out_type: []const u8,
     ) !void {
-        if (!self.hasObjPrefix(in_obj_prefix) or !self.hasObjPrefix(out_obj_prefix)) return error.UnknownObjPrefix;
+        if (!self.hasNodeType(in_type) or !self.hasNodeType(out_type)) return error.UnknownNodeType;
         if (findLinkTypeIndex(self.link_types.items, link_type) != null) return error.DuplicateLinkType;
-        if (self.hasObjPrefix(link_type)) return error.LinkTypeCollidesWithObjPrefix;
+        if (self.hasNodeType(link_type)) return error.LinkTypeCollidesWithNodeType;
 
         const lt_copy = try self.allocator.dupe(u8, link_type);
         errdefer self.allocator.free(lt_copy);
-        const in_copy = try self.allocator.dupe(u8, in_obj_prefix);
+        const in_copy = try self.allocator.dupe(u8, in_type);
         errdefer self.allocator.free(in_copy);
-        const out_copy = try self.allocator.dupe(u8, out_obj_prefix);
+        const out_copy = try self.allocator.dupe(u8, out_type);
         errdefer self.allocator.free(out_copy);
 
         try self.link_types.append(self.allocator, .{
             .link_type = lt_copy,
-            .in_obj_prefix = in_copy,
-            .out_obj_prefix = out_copy,
+            .in_type = in_copy,
+            .out_type = out_copy,
             .next = 1,
         });
     }
@@ -289,7 +347,7 @@ pub const Registry = struct {
         const idx = findLinkTypeIndex(self.link_types.items, old_link_type) orelse return error.UnknownLinkType;
         if (std.mem.eql(u8, old_link_type, new_link_type)) return;
         if (findLinkTypeIndex(self.link_types.items, new_link_type) != null) return error.DuplicateLinkType;
-        if (self.hasObjPrefix(new_link_type)) return error.LinkTypeCollidesWithObjPrefix;
+        if (self.hasNodeType(new_link_type)) return error.LinkTypeCollidesWithNodeType;
 
         const old_copy = self.link_types.items[idx].link_type;
         const new_copy = try self.allocator.dupe(u8, new_link_type);
@@ -308,14 +366,24 @@ pub const Registry = struct {
         return self.link_types.items[idx].next;
     }
 
-    pub fn linkTypeInPrefix(self: *const Registry, link_type: []const u8) ?[]const u8 {
+    pub fn linkTypeInType(self: *const Registry, link_type: []const u8) ?[]const u8 {
         const idx = findLinkTypeIndex(self.link_types.items, link_type) orelse return null;
-        return self.link_types.items[idx].in_obj_prefix;
+        return self.link_types.items[idx].in_type;
     }
 
-    pub fn linkTypeOutPrefix(self: *const Registry, link_type: []const u8) ?[]const u8 {
+    pub fn linkTypeOutType(self: *const Registry, link_type: []const u8) ?[]const u8 {
         const idx = findLinkTypeIndex(self.link_types.items, link_type) orelse return null;
-        return self.link_types.items[idx].out_obj_prefix;
+        return self.link_types.items[idx].out_type;
+    }
+
+    /// Deprecated; use [`linkTypeInType`].
+    pub fn linkTypeInPrefix(self: *const Registry, link_type: []const u8) ?[]const u8 {
+        return self.linkTypeInType(link_type);
+    }
+
+    /// Deprecated; use [`linkTypeOutType`].
+    pub fn linkTypeOutPrefix(self: *const Registry, link_type: []const u8) ?[]const u8 {
+        return self.linkTypeOutType(link_type);
     }
 
     pub fn isLinkTombstoned(self: *const Registry, link_type: []const u8, n: u64) bool {
@@ -350,7 +418,6 @@ pub const Registry = struct {
         return n;
     }
 
-    /// Collects registered link type strings (borrowed from registry storage).
     pub fn linkTypeSlice(self: *const Registry, allocator: std.mem.Allocator) ![]const []const u8 {
         const out = try allocator.alloc([]const u8, self.link_types.items.len);
         for (self.link_types.items, 0..) |e, i| {
@@ -359,69 +426,108 @@ pub const Registry = struct {
         return out;
     }
 
-    pub fn renamePrefix(self: *Registry, old_prefix: []const u8, new_prefix: []const u8) !void {
-        if (findLinkTypeIndex(self.link_types.items, new_prefix) != null) return error.ObjPrefixCollidesWithLinkType;
-        const idx = findPrefixIndex(self.prefixes.items, old_prefix) orelse return error.UnknownObjPrefix;
-        if (std.mem.eql(u8, old_prefix, new_prefix)) return;
-        if (findPrefixIndex(self.prefixes.items, new_prefix) != null) return error.DuplicateObjPrefix;
+    /// Renames a node type; when concrete and `id_prefix == old_type`, also renames id prefix and link endpoint types.
+    pub fn renameNodeType(self: *Registry, old_type: []const u8, new_type: []const u8) !void {
+        if (findLinkTypeIndex(self.link_types.items, new_type) != null) return error.TypeNameCollidesWithLinkType;
+        const idx = findNodeTypeIndex(self.node_types.items, old_type) orelse return error.UnknownNodeType;
+        if (std.mem.eql(u8, old_type, new_type)) return;
+        if (findNodeTypeIndex(self.node_types.items, new_type) != null) return error.DuplicateNodeType;
 
-        const old_copy = self.prefixes.items[idx].obj_prefix;
-        const new_copy = try self.allocator.dupe(u8, new_prefix);
-        errdefer self.allocator.free(new_copy);
+        const entry = &self.node_types.items[idx];
+        const old_type_copy = entry.type;
+        const new_type_copy = try self.allocator.dupe(u8, new_type);
+        errdefer self.allocator.free(new_type_copy);
+        entry.type = new_type_copy;
+        self.allocator.free(old_type_copy);
 
-        self.prefixes.items[idx].obj_prefix = new_copy;
-        self.allocator.free(old_copy);
-        try self.rewriteObjPrefixInLinkTypes(old_prefix, new_prefix);
+        if (!entry.abstract) {
+            const prefix = entry.id_prefix.?;
+            if (std.mem.eql(u8, prefix, old_type)) {
+                const new_prefix_copy = try self.allocator.dupe(u8, new_type);
+                self.allocator.free(prefix);
+                entry.id_prefix = new_prefix_copy;
+            }
+        }
+
+        try self.rewriteExtendsOnChildren(old_type, new_type);
+        try self.rewriteTypeInLinkTypes(old_type, new_type);
     }
 
-    /// Updates `in_obj_prefix` and `out_obj_prefix` on link types when an object type is renamed.
-    pub fn rewriteObjPrefixInLinkTypes(self: *Registry, old_prefix: []const u8, new_prefix: []const u8) !void {
+    pub fn rewriteTypeInLinkTypes(self: *Registry, old_type: []const u8, new_type: []const u8) !void {
         for (self.link_types.items) |*entry| {
-            if (std.mem.eql(u8, entry.in_obj_prefix, old_prefix)) {
-                const nc = try self.allocator.dupe(u8, new_prefix);
-                self.allocator.free(entry.in_obj_prefix);
-                entry.in_obj_prefix = nc;
+            if (std.mem.eql(u8, entry.in_type, old_type)) {
+                const nc = try self.allocator.dupe(u8, new_type);
+                self.allocator.free(entry.in_type);
+                entry.in_type = nc;
             }
-            if (std.mem.eql(u8, entry.out_obj_prefix, old_prefix)) {
-                const nc = try self.allocator.dupe(u8, new_prefix);
-                self.allocator.free(entry.out_obj_prefix);
-                entry.out_obj_prefix = nc;
+            if (std.mem.eql(u8, entry.out_type, old_type)) {
+                const nc = try self.allocator.dupe(u8, new_type);
+                self.allocator.free(entry.out_type);
+                entry.out_type = nc;
             }
         }
     }
 
-    /// Returns the next numeric suffix and advances `next`, skipping tombstoned values.
-    pub fn allocateNextNumeric(self: *Registry, obj_prefix: []const u8) !u64 {
-        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return error.UnknownObjPrefix;
-        var n = self.prefixes.items[idx].next;
-        while (findTombstoneIndex(self.prefixes.items[idx].tombstones.items, n) != null) {
+    pub fn rewriteExtendsOnChildren(self: *Registry, old_abstract: []const u8, new_abstract: []const u8) !void {
+        for (self.node_types.items) |*entry| {
+            if (entry.abstract) continue;
+            if (entry.extends) |ext| {
+                if (std.mem.eql(u8, ext, old_abstract)) {
+                    const nc = try self.allocator.dupe(u8, new_abstract);
+                    self.allocator.free(ext);
+                    entry.extends = nc;
+                }
+            }
+        }
+    }
+
+    pub fn allocateNextNumeric(self: *Registry, id_prefix: []const u8) !u64 {
+        if (findNodeTypeIndex(self.node_types.items, id_prefix)) |ti| {
+            if (self.node_types.items[ti].abstract) return error.AbstractNotInstantiable;
+        }
+        const idx = findNodeTypeIndexByIdPrefix(self.node_types.items, id_prefix) orelse return error.UnknownIdPrefix;
+        if (self.node_types.items[idx].abstract) return error.AbstractNotInstantiable;
+        var n = self.node_types.items[idx].next;
+        while (findTombstoneIndex(self.node_types.items[idx].tombstones.items, n) != null) {
             n +%= 1;
         }
-        self.prefixes.items[idx].next = n + 1;
+        self.node_types.items[idx].next = n + 1;
         return n;
     }
 
-    /// Collects registered prefix strings (borrowed from registry storage).
-    pub fn objPrefixSlice(self: *const Registry, allocator: std.mem.Allocator) ![]const []const u8 {
-        const out = try allocator.alloc([]const u8, self.prefixes.items.len);
-        for (self.prefixes.items, 0..) |e, i| {
-            out[i] = e.obj_prefix;
+    /// Collects concrete id prefix strings (borrowed from registry storage).
+    pub fn idPrefixSlice(self: *const Registry, allocator: std.mem.Allocator) ![]const []const u8 {
+        var count: usize = 0;
+        for (self.node_types.items) |e| {
+            if (!e.abstract) count += 1;
+        }
+        const out = try allocator.alloc([]const u8, count);
+        var i: usize = 0;
+        for (self.node_types.items) |e| {
+            if (!e.abstract) {
+                out[i] = e.id_prefix.?;
+                i += 1;
+            }
         }
         return out;
     }
 
-    /// Returns whether any issued, non-tombstoned numeric suffix exists for `obj_prefix`.
-    pub fn hasLiveNodeInstance(self: *const Registry, obj_prefix: []const u8) bool {
-        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return false;
-        const entry = self.prefixes.items[idx];
+    /// Deprecated; use [`idPrefixSlice`].
+    pub fn objPrefixSlice(self: *const Registry, allocator: std.mem.Allocator) ![]const []const u8 {
+        return self.idPrefixSlice(allocator);
+    }
+
+    pub fn hasLiveNodeInstance(self: *const Registry, id_prefix: []const u8) bool {
+        const idx = findNodeTypeIndexByIdPrefix(self.node_types.items, id_prefix) orelse return false;
+        const entry = self.node_types.items[idx];
+        if (entry.abstract) return false;
         var n: u64 = 1;
         while (n < entry.next) : (n += 1) {
-            if (!self.isTombstoned(obj_prefix, n)) return true;
+            if (!self.isTombstoned(id_prefix, n)) return true;
         }
         return false;
     }
 
-    /// Returns whether any issued, non-tombstoned link id exists for `link_type`.
     pub fn hasLiveLinkInstance(self: *const Registry, link_type: []const u8) bool {
         const idx = findLinkTypeIndex(self.link_types.items, link_type) orelse return false;
         const entry = self.link_types.items[idx];
@@ -432,13 +538,11 @@ pub const Registry = struct {
         return false;
     }
 
-    /// Collects link type names whose `in_obj_prefix` or `out_obj_prefix` equals `obj_prefix`.
-    ///
-    /// Returns: owned slice of owned strings; caller must free each element and the slice.
-    pub fn linkTypesReferencingPrefix(
+    /// Collects link type names whose `in_type` or `out_type` equals `type_name`.
+    pub fn linkTypesReferencingType(
         self: *const Registry,
         allocator: std.mem.Allocator,
-        obj_prefix: []const u8,
+        type_name: []const u8,
     ) ![]const []const u8 {
         var out: std.ArrayList([]const u8) = .empty;
         errdefer {
@@ -446,9 +550,7 @@ pub const Registry = struct {
             out.deinit(allocator);
         }
         for (self.link_types.items) |entry| {
-            if (std.mem.eql(u8, entry.in_obj_prefix, obj_prefix) or
-                std.mem.eql(u8, entry.out_obj_prefix, obj_prefix))
-            {
+            if (std.mem.eql(u8, entry.in_type, type_name) or std.mem.eql(u8, entry.out_type, type_name)) {
                 const copy = try allocator.dupe(u8, entry.link_type);
                 try out.append(allocator, copy);
             }
@@ -456,25 +558,62 @@ pub const Registry = struct {
         return try out.toOwnedSlice(allocator);
     }
 
-    /// Removes a registered node-type prefix entry (frees nested storage).
-    pub fn removePrefix(self: *Registry, obj_prefix: []const u8) !void {
-        const idx = findPrefixIndex(self.prefixes.items, obj_prefix) orelse return error.UnknownObjPrefix;
-        var entry = self.prefixes.items[idx];
-        self.allocator.free(entry.obj_prefix);
+    /// Deprecated; use [`linkTypesReferencingType`].
+    pub fn linkTypesReferencingPrefix(
+        self: *const Registry,
+        allocator: std.mem.Allocator,
+        type_name: []const u8,
+    ) ![]const []const u8 {
+        return self.linkTypesReferencingType(allocator, type_name);
+    }
+
+    /// Returns owned names of concrete types whose `extends` equals `abstract_type`.
+    pub fn concreteChildrenOf(
+        self: *const Registry,
+        allocator: std.mem.Allocator,
+        abstract_type: []const u8,
+    ) ![]const []const u8 {
+        var out: std.ArrayList([]const u8) = .empty;
+        errdefer {
+            for (out.items) |s| allocator.free(s);
+            out.deinit(allocator);
+        }
+        for (self.node_types.items) |entry| {
+            if (entry.abstract) continue;
+            if (entry.extends) |ext| {
+                if (std.mem.eql(u8, ext, abstract_type)) {
+                    const copy = try allocator.dupe(u8, entry.type);
+                    try out.append(allocator, copy);
+                }
+            }
+        }
+        return try out.toOwnedSlice(allocator);
+    }
+
+    pub fn removeNodeType(self: *Registry, type_name: []const u8) !void {
+        const idx = findNodeTypeIndex(self.node_types.items, type_name) orelse return error.UnknownNodeType;
+        var entry = self.node_types.items[idx];
+        self.allocator.free(entry.type);
+        if (entry.id_prefix) |p| self.allocator.free(p);
+        if (entry.extends) |e| self.allocator.free(e);
         for (entry.tombstones.items) |ts| {
             if (ts.git_commit) |c| self.allocator.free(c);
         }
         entry.tombstones.deinit(self.allocator);
-        _ = self.prefixes.swapRemove(idx);
+        _ = self.node_types.swapRemove(idx);
     }
 
-    /// Removes a registered link type entry (frees nested storage).
+    /// Deprecated; use [`removeNodeType`].
+    pub fn removePrefix(self: *Registry, type_name: []const u8) !void {
+        return self.removeNodeType(type_name);
+    }
+
     pub fn removeLinkType(self: *Registry, link_type: []const u8) !void {
         const idx = findLinkTypeIndex(self.link_types.items, link_type) orelse return error.UnknownLinkType;
         var entry = self.link_types.items[idx];
         self.allocator.free(entry.link_type);
-        self.allocator.free(entry.in_obj_prefix);
-        self.allocator.free(entry.out_obj_prefix);
+        self.allocator.free(entry.in_type);
+        self.allocator.free(entry.out_type);
         for (entry.tombstones.items) |ts| {
             if (ts.git_commit) |c| self.allocator.free(c);
         }
@@ -483,12 +622,61 @@ pub const Registry = struct {
     }
 };
 
+pub fn findNodeTypeIndex(items: []const Registry.NodeTypeEntry, type_name: []const u8) ?usize {
+    for (items, 0..) |e, i| {
+        if (std.mem.eql(u8, e.type, type_name)) return i;
+    }
+    return null;
+}
+
+pub fn findNodeTypeIndexByIdPrefix(items: []const Registry.NodeTypeEntry, id_prefix: []const u8) ?usize {
+    for (items, 0..) |e, i| {
+        if (e.abstract) continue;
+        if (e.id_prefix) |p| {
+            if (std.mem.eql(u8, p, id_prefix)) return i;
+        }
+    }
+    return null;
+}
+
+fn ensureNameAvailable(reg: *Registry, name: []const u8) !void {
+    if (findNodeTypeIndex(reg.node_types.items, name) != null) return error.DuplicateNodeType;
+    if (findLinkTypeIndex(reg.link_types.items, name) != null) return error.TypeNameCollidesWithLinkType;
+}
+
+fn validateNodeTypeGraph(reg: *const Registry) !void {
+    for (reg.node_types.items) |entry| {
+        if (entry.abstract) {
+            if (entry.id_prefix != null or entry.extends != null or entry.next != 0) return error.RegistryInvalid;
+        } else {
+            if (entry.id_prefix == null or entry.extends == null) return error.RegistryInvalid;
+            const parent_idx = findNodeTypeIndex(reg.node_types.items, entry.extends.?) orelse return error.RegistryInvalid;
+            if (!reg.node_types.items[parent_idx].abstract) return error.RegistryInvalid;
+        }
+    }
+    for (reg.link_types.items) |lt| {
+        if (!reg.hasNodeType(lt.in_type) or !reg.hasNodeType(lt.out_type)) return error.RegistryInvalid;
+    }
+}
+
+/// JSON envelope read from disk.
+const RegistryJsonIn = struct {
+    description: []const u8,
+    version: u32,
+    kind: []const u8,
+    node_types: []NodeTypeJson,
+    link_types: []LinkTypeJson = &.{},
+};
+
 fn registryJsonSlice(self: *Registry) ![]const u8 {
-    sortPrefixes(self.prefixes.items);
+    sortNodeTypes(self.node_types.items);
     sortLinkTypes(self.link_types.items);
 
-    var prefixes_json = try self.allocator.alloc(PrefixJson, self.prefixes.items.len);
-    defer self.allocator.free(prefixes_json);
+    var node_parts: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (node_parts.items) |p| self.allocator.free(p);
+        node_parts.deinit(self.allocator);
+    }
 
     var tombstone_bufs: std.ArrayList([]TombstoneJson) = .empty;
     defer {
@@ -496,20 +684,26 @@ fn registryJsonSlice(self: *Registry) ![]const u8 {
         tombstone_bufs.deinit(self.allocator);
     }
 
-    for (self.prefixes.items, 0..) |e, i| {
-        const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
-        try tombstone_bufs.append(self.allocator, ts_json);
-        for (e.tombstones.items, 0..) |ts, j| {
-            ts_json[j] = .{
-                .n = ts.n,
-                .git_commit = ts.git_commit,
+    for (self.node_types.items) |e| {
+        const part = if (e.abstract) blk: {
+            const row = AbstractNodeTypeJson{ .type = e.type };
+            break :blk try std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(row, .{})});
+        } else blk: {
+            const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
+            try tombstone_bufs.append(self.allocator, ts_json);
+            for (e.tombstones.items, 0..) |ts, j| {
+                ts_json[j] = .{ .n = ts.n, .git_commit = ts.git_commit };
+            }
+            const row = ConcreteNodeTypeJson{
+                .type = e.type,
+                .extends = e.extends.?,
+                .id_prefix = e.id_prefix,
+                .next = e.next,
+                .tombstones = ts_json,
             };
-        }
-        prefixes_json[i] = .{
-            .obj_prefix = e.obj_prefix,
-            .next = e.next,
-            .tombstones = ts_json,
+            break :blk try std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(row, .{})});
         };
+        try node_parts.append(self.allocator, part);
     }
 
     var link_tombstone_bufs: std.ArrayList([]TombstoneJson) = .empty;
@@ -525,29 +719,117 @@ fn registryJsonSlice(self: *Registry) ![]const u8 {
         const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
         try link_tombstone_bufs.append(self.allocator, ts_json);
         for (e.tombstones.items, 0..) |ts, j| {
-            ts_json[j] = .{
-                .n = ts.n,
-                .git_commit = ts.git_commit,
-            };
+            ts_json[j] = .{ .n = ts.n, .git_commit = ts.git_commit };
         }
         link_types_json[i] = .{
             .link_type = e.link_type,
-            .in_obj_prefix = e.in_obj_prefix,
-            .out_obj_prefix = e.out_obj_prefix,
+            .in_type = e.in_type,
+            .out_type = e.out_type,
             .next = e.next,
             .tombstones = ts_json,
         };
     }
 
-    const envelope = RegistryJson{
-        .description = registry_validate.registry_description,
-        .version = registry_version,
-        .kind = "fits-registry-v1",
-        .prefixes = prefixes_json,
-        .link_types = link_types_json,
+    const nodes_joined = try std.mem.join(self.allocator, ",", node_parts.items);
+    defer self.allocator.free(nodes_joined);
+
+    const links_text = try std.fmt.allocPrint(self.allocator, "{f}", .{
+        std.json.fmt(link_types_json, .{}),
+    });
+    defer self.allocator.free(links_text);
+
+    return std.fmt.allocPrint(self.allocator,
+        \\{{
+        \\  "description": "{s}",
+        \\  "version": {d},
+        \\  "kind": "{s}",
+        \\  "node_types": [{s}],
+        \\  "link_types": {s}
+        \\}}
+    , .{
+        registry_validate.registry_description,
+        registry_version,
+        registry_validate.registry_kind,
+        nodes_joined,
+        links_text,
+    });
+}
+
+fn mergeNodeType(reg: *Registry, nj: NodeTypeJson) !void {
+    if (nj.abstract) {
+        try mergeAbstractNodeType(reg, nj.type);
+        return;
+    }
+    const prefix = nj.id_prefix orelse nj.type;
+    const extends = nj.extends orelse return error.RegistryInvalid;
+    const next = nj.next orelse return error.RegistryInvalid;
+    try mergeConcreteNodeType(reg, nj.type, prefix, extends, next, nj.tombstones);
+}
+
+fn mergeAbstractNodeType(reg: *Registry, type_name: []const u8) !void {
+    const copy = try reg.allocator.dupe(u8, type_name);
+    errdefer reg.allocator.free(copy);
+
+    const idx = findNodeTypeIndex(reg.node_types.items, copy);
+    if (idx != null) {
+        reg.allocator.free(copy);
+        return;
+    }
+    try reg.node_types.append(reg.allocator, .{
+        .type = copy,
+        .abstract = true,
+    });
+}
+
+fn mergeConcreteNodeType(
+    reg: *Registry,
+    type_name: []const u8,
+    id_prefix: []const u8,
+    extends: []const u8,
+    next: u64,
+    tombstones_json: []const TombstoneJson,
+) !void {
+    const type_copy = try reg.allocator.dupe(u8, type_name);
+    errdefer reg.allocator.free(type_copy);
+    const prefix_copy = try reg.allocator.dupe(u8, id_prefix);
+    errdefer reg.allocator.free(prefix_copy);
+    const extends_copy = try reg.allocator.dupe(u8, extends);
+    errdefer reg.allocator.free(extends_copy);
+
+    const idx = findNodeTypeIndex(reg.node_types.items, type_copy);
+    const entry: *Registry.NodeTypeEntry = if (idx) |i| blk: {
+        reg.allocator.free(type_copy);
+        reg.allocator.free(prefix_copy);
+        reg.allocator.free(extends_copy);
+        const e = &reg.node_types.items[i];
+        e.next = @max(e.next, next);
+        break :blk e;
+    } else blk: {
+        try reg.node_types.append(reg.allocator, .{
+            .type = type_copy,
+            .abstract = false,
+            .id_prefix = prefix_copy,
+            .extends = extends_copy,
+            .next = next,
+        });
+        break :blk &reg.node_types.items[reg.node_types.items.len - 1];
     };
 
-    return std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(envelope, .{ .whitespace = .indent_2 })});
+    for (tombstones_json) |tj| {
+        if (tj.git_commit) |c| try validateGitCommit(c);
+        const existing = findTombstoneIndex(entry.tombstones.items, tj.n);
+        if (existing) |ti| {
+            const cur = &entry.tombstones.items[ti];
+            const incoming_better = tombstoneRicherThan(cur.*, tj);
+            if (!incoming_better) continue;
+            if (cur.git_commit) |old| reg.allocator.free(old);
+            cur.git_commit = if (tj.git_commit) |nc| try reg.allocator.dupe(u8, nc) else null;
+        } else {
+            const gc = if (tj.git_commit) |nc| try reg.allocator.dupe(u8, nc) else null;
+            try entry.tombstones.append(reg.allocator, .{ .n = tj.n, .git_commit = gc });
+        }
+    }
+    sortTombstones(entry.tombstones.items);
 }
 
 /// Relative display path for `.fits/registry.json` under `repo_root`.
@@ -558,15 +840,6 @@ pub fn formatRegistryRelPath(allocator: std.mem.Allocator, repo_root: []const u8
     return std.fs.path.join(allocator, &.{ repo_root, fits_dir_name, registry_file_name });
 }
 
-/// Loads the registry and prints all validation issues to stderr on [`error.RegistryInvalid`].
-///
-/// Parameters:
-/// - `allocator`: Used for paths and registry buffers.
-/// - `io`: Process I/O (unused today; reserved for future stderr routing).
-/// - `repo_root`: Repository root containing `.fits/`.
-///
-/// Returns: an in-memory registry on success.
-/// On failure: same errors as [`Registry.load`], with validation issues printed when applicable.
 pub fn loadRegistry(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !Registry {
     var validation_report: registry_validate.ValidationReport = undefined;
     const reg = Registry.load(allocator, io, repo_root, &validation_report) catch |err| {
@@ -584,62 +857,31 @@ pub fn loadRegistry(allocator: std.mem.Allocator, io: Io, repo_root: []const u8)
     return reg;
 }
 
-/// Prints a validation report using the standard registry error line format.
 pub fn printValidationReport(registry_path: []const u8, report: *const registry_validate.ValidationReport) void {
     report.print(registry_path);
 }
 
-/// Validates an object type prefix.
-pub fn validateObjPrefix(obj_prefix: []const u8) error{InvalidObjPrefix}!void {
-    if (obj_prefix.len == 0) return error.InvalidObjPrefix;
-    const c0 = obj_prefix[0];
-    if (!std.ascii.isAlphabetic(c0)) return error.InvalidObjPrefix;
-    for (obj_prefix[1..]) |c| {
+/// Validates a type name or id prefix string.
+pub fn validateTypeName(name: []const u8) error{InvalidTypeName}!void {
+    if (name.len == 0) return error.InvalidTypeName;
+    const c0 = name[0];
+    if (!std.ascii.isAlphabetic(c0)) return error.InvalidTypeName;
+    for (name[1..]) |c| {
         if (std.ascii.isAlphanumeric(c) or c == '_') continue;
-        return error.InvalidObjPrefix;
+        return error.InvalidTypeName;
     }
 }
 
-/// Validates a git commit object name (40 lowercase hex digits).
+/// Deprecated; use [`validateTypeName`].
+pub fn validateObjPrefix(name: []const u8) error{InvalidObjPrefix}!void {
+    validateTypeName(name) catch return error.InvalidObjPrefix;
+}
+
 pub fn validateGitCommit(commit: []const u8) error{InvalidGitCommit}!void {
     if (commit.len != git_commit_hex_len) return error.InvalidGitCommit;
     for (commit) |c| {
         if (!std.ascii.isHex(c)) return error.InvalidGitCommit;
     }
-}
-
-fn mergePrefix(reg: *Registry, obj_prefix: []const u8, next: u64, tombstones_json: []const TombstoneJson) !void {
-    const copy = try reg.allocator.dupe(u8, obj_prefix);
-    errdefer reg.allocator.free(copy);
-
-    const idx = findPrefixIndex(reg.prefixes.items, copy);
-    const entry = if (idx) |i|
-        &reg.prefixes.items[i]
-    else blk: {
-        try reg.prefixes.append(reg.allocator, .{ .obj_prefix = copy, .next = next });
-        break :blk &reg.prefixes.items[reg.prefixes.items.len - 1];
-    };
-
-    if (idx != null) {
-        entry.next = @max(entry.next, next);
-        reg.allocator.free(copy);
-    }
-
-    for (tombstones_json) |tj| {
-        if (tj.git_commit) |c| try validateGitCommit(c);
-        const existing = findTombstoneIndex(entry.tombstones.items, tj.n);
-        if (existing) |ti| {
-            const cur = &entry.tombstones.items[ti];
-            const incoming_better = tombstoneRicherThan(cur.*, tj);
-            if (!incoming_better) continue;
-            if (cur.git_commit) |old| reg.allocator.free(old);
-            cur.git_commit = if (tj.git_commit) |nc| try reg.allocator.dupe(u8, nc) else null;
-        } else {
-            const gc = if (tj.git_commit) |nc| try reg.allocator.dupe(u8, nc) else null;
-            try entry.tombstones.append(reg.allocator, .{ .n = tj.n, .git_commit = gc });
-        }
-    }
-    sortTombstones(entry.tombstones.items);
 }
 
 fn tombstoneRicherThan(cur: TombstoneEntry, incoming: TombstoneJson) bool {
@@ -660,10 +902,10 @@ fn sortTombstones(items: []TombstoneEntry) void {
     }.less);
 }
 
-fn sortPrefixes(items: []Registry.PrefixEntry) void {
-    std.mem.sortUnstable(Registry.PrefixEntry, items, {}, struct {
-        fn less(_: void, a: Registry.PrefixEntry, b: Registry.PrefixEntry) bool {
-            return std.mem.order(u8, a.obj_prefix, b.obj_prefix) == .lt;
+fn sortNodeTypes(items: []Registry.NodeTypeEntry) void {
+    std.mem.sortUnstable(Registry.NodeTypeEntry, items, {}, struct {
+        fn less(_: void, a: Registry.NodeTypeEntry, b: Registry.NodeTypeEntry) bool {
+            return std.mem.order(u8, a.type, b.type) == .lt;
         }
     }.less);
 }
@@ -679,8 +921,8 @@ fn sortLinkTypes(items: []Registry.LinkTypeEntry) void {
 fn mergeLinkType(
     reg: *Registry,
     link_type: []const u8,
-    in_obj_prefix: []const u8,
-    out_obj_prefix: []const u8,
+    in_type: []const u8,
+    out_type: []const u8,
     next: u64,
     tombstones_json: []const TombstoneJson,
 ) !void {
@@ -691,20 +933,20 @@ fn mergeLinkType(
     const entry: *Registry.LinkTypeEntry = if (idx) |i| blk: {
         reg.allocator.free(lt_copy);
         const e = &reg.link_types.items[i];
-        if (!std.mem.eql(u8, e.in_obj_prefix, in_obj_prefix) or !std.mem.eql(u8, e.out_obj_prefix, out_obj_prefix)) {
+        if (!std.mem.eql(u8, e.in_type, in_type) or !std.mem.eql(u8, e.out_type, out_type)) {
             return error.RegistryLinkTypeMergeConflict;
         }
         e.next = @max(e.next, next);
         break :blk e;
     } else blk: {
-        const in_copy = try reg.allocator.dupe(u8, in_obj_prefix);
+        const in_copy = try reg.allocator.dupe(u8, in_type);
         errdefer reg.allocator.free(in_copy);
-        const out_copy = try reg.allocator.dupe(u8, out_obj_prefix);
+        const out_copy = try reg.allocator.dupe(u8, out_type);
         errdefer reg.allocator.free(out_copy);
         try reg.link_types.append(reg.allocator, .{
             .link_type = lt_copy,
-            .in_obj_prefix = in_copy,
-            .out_obj_prefix = out_copy,
+            .in_type = in_copy,
+            .out_type = out_copy,
             .next = next,
         });
         break :blk &reg.link_types.items[reg.link_types.items.len - 1];
@@ -741,7 +983,6 @@ fn findTombstoneIndex(items: []const TombstoneEntry, n: u64) ?usize {
     return null;
 }
 
-/// Joins `repo_root` with `.fits/registry.json`.
 pub fn joinRegistryPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]const u8 {
     return std.fs.path.join(allocator, &.{ repo_root, fits_dir_name, registry_file_name });
 }
@@ -764,128 +1005,54 @@ fn readFileAlloc(file: Io.File, io: Io, allocator: std.mem.Allocator, max_bytes:
     return buf;
 }
 
-fn findPrefixIndex(items: []const Registry.PrefixEntry, obj_prefix: []const u8) ?usize {
-    for (items, 0..) |e, i| {
-        if (std.mem.eql(u8, e.obj_prefix, obj_prefix)) return i;
-    }
-    return null;
-}
-
-test "allocate monotonic per prefix" {
+test "allocate monotonic per id prefix" {
     const alloc = std.testing.allocator;
     var reg: Registry = .{ .allocator = alloc };
     defer reg.deinit();
 
-    try reg.registerNewPrefix("REQ");
-    try reg.registerNewPrefix("BUG");
+    try reg.registerAbstractType("req");
+    try reg.registerConcreteType("REQ", "req", null);
+    try reg.registerConcreteType("BUG", "req", null);
 
     try std.testing.expectEqual(@as(u64, 1), try reg.allocateNextNumeric("REQ"));
     try std.testing.expectEqual(@as(u64, 2), try reg.allocateNextNumeric("REQ"));
     try std.testing.expectEqual(@as(u64, 1), try reg.allocateNextNumeric("BUG"));
-    try std.testing.expectEqual(@as(u64, 3), try reg.allocateNextNumeric("REQ"));
 }
 
-test "allocate skips tombstoned suffix" {
+test "abstract not instantiable" {
     const alloc = std.testing.allocator;
     var reg: Registry = .{ .allocator = alloc };
     defer reg.deinit();
 
-    try reg.registerNewPrefix("REQ");
-    _ = try reg.allocateNextNumeric("REQ");
-    reg.prefixes.items[0].next = 2;
-    try reg.tombstoneNumeric("REQ", 2, .{});
-    try std.testing.expectEqual(@as(u64, 3), try reg.allocateNextNumeric("REQ"));
+    try reg.registerAbstractType("req");
+    try reg.registerConcreteType("REQ", "req", null);
+    try std.testing.expectError(error.AbstractNotInstantiable, reg.allocateNextNumeric("req"));
 }
 
-test "tombstone duplicate" {
+test "registerConcreteType requires abstract parent" {
     const alloc = std.testing.allocator;
     var reg: Registry = .{ .allocator = alloc };
     defer reg.deinit();
 
-    try reg.registerNewPrefix("REQ");
-    try reg.tombstoneNumeric("REQ", 1, .{});
-    try std.testing.expectError(error.AlreadyTombstoned, reg.tombstoneNumeric("REQ", 1, .{}));
+    try std.testing.expectError(error.UnknownNodeType, reg.registerConcreteType("REQ", "req", null));
+    try reg.registerAbstractType("req");
+    try reg.registerConcreteType("REQ", "req", null);
+    try std.testing.expectError(error.ExtendsNotAbstract, reg.registerConcreteType("BUG", "REQ", null));
 }
 
-test "validateGitCommit" {
-    try validateGitCommit("a1b2c3d4e5f6789012345678901234567890abcd");
-    try std.testing.expectError(error.InvalidGitCommit, validateGitCommit("short"));
-    try std.testing.expectError(error.InvalidGitCommit, validateGitCommit("g1b2c3d4e5f6789012345678901234567890abcd"));
-}
-
-test "allocate requires registered prefix" {
+test "renameNodeType abstract updates children and links" {
     const alloc = std.testing.allocator;
     var reg: Registry = .{ .allocator = alloc };
     defer reg.deinit();
 
-    try std.testing.expectError(error.UnknownObjPrefix, reg.allocateNextNumeric("REQ"));
-}
+    try reg.registerAbstractType("req");
+    try reg.registerConcreteType("REQ", "req", null);
+    try reg.registerAbstractType("doc");
+    try reg.registerConcreteType("DOC", "doc", null);
+    try reg.registerNewLinkType("implements", "req", "doc");
 
-test "validateObjPrefix" {
-    try validateObjPrefix("REQ");
-    try validateObjPrefix("R2");
-    try validateObjPrefix("a_b");
-    try std.testing.expectError(error.InvalidObjPrefix, validateObjPrefix(""));
-    try std.testing.expectError(error.InvalidObjPrefix, validateObjPrefix("9A"));
-    try std.testing.expectError(error.InvalidObjPrefix, validateObjPrefix("A-B"));
-}
-
-test "registerNewPrefix duplicate" {
-    const alloc = std.testing.allocator;
-    var reg: Registry = .{ .allocator = alloc };
-    defer reg.deinit();
-
-    try reg.registerNewPrefix("REQ");
-    try std.testing.expectError(error.DuplicateObjPrefix, reg.registerNewPrefix("REQ"));
-}
-
-test "renamePrefix" {
-    const alloc = std.testing.allocator;
-    var reg: Registry = .{ .allocator = alloc };
-    defer reg.deinit();
-
-    try reg.registerNewPrefix("REQ");
-    _ = try reg.allocateNextNumeric("REQ");
-    try reg.renamePrefix("REQ", "FOO");
-    try std.testing.expect(!reg.hasObjPrefix("REQ"));
-    try std.testing.expect(reg.hasObjPrefix("FOO"));
-    try std.testing.expectEqual(@as(?u64, 2), reg.nextForObjPrefix("FOO"));
-}
-
-test "removePrefix and hasLiveNodeInstance" {
-    const alloc = std.testing.allocator;
-    var reg: Registry = .{ .allocator = alloc };
-    defer reg.deinit();
-
-    try reg.registerNewPrefix("REQ");
-    try std.testing.expect(!reg.hasLiveNodeInstance("REQ"));
-    _ = try reg.allocateNextNumeric("REQ");
-    try std.testing.expect(reg.hasLiveNodeInstance("REQ"));
-    try reg.tombstoneNumeric("REQ", 1, .{});
-    try std.testing.expect(!reg.hasLiveNodeInstance("REQ"));
-
-    try reg.removePrefix("REQ");
-    try std.testing.expect(!reg.hasObjPrefix("REQ"));
-    try std.testing.expectError(error.UnknownObjPrefix, reg.removePrefix("REQ"));
-}
-
-test "linkTypesReferencingPrefix and removeLinkType" {
-    const alloc = std.testing.allocator;
-    var reg: Registry = .{ .allocator = alloc };
-    defer reg.deinit();
-
-    try reg.registerNewPrefix("REQ");
-    try reg.registerNewPrefix("DOC");
-    try reg.registerNewLinkType("implements", "REQ", "DOC");
-
-    const refs = try reg.linkTypesReferencingPrefix(alloc, "REQ");
-    defer {
-        for (refs) |s| alloc.free(s);
-        alloc.free(refs);
-    }
-    try std.testing.expectEqual(@as(usize, 1), refs.len);
-    try std.testing.expectEqualStrings("implements", refs[0]);
-
-    try reg.removeLinkType("implements");
-    try std.testing.expect(!reg.hasLinkType("implements"));
+    try reg.renameNodeType("req", "requirement");
+    try std.testing.expect(reg.hasNodeType("requirement"));
+    try std.testing.expectEqualStrings("requirement", reg.node_types.items[1].extends.?);
+    try std.testing.expectEqualStrings("requirement", reg.linkTypeInType("implements").?);
 }

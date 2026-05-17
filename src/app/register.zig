@@ -1,4 +1,4 @@
-//! CLI use-cases for `fits register`: **node type** prefixes (CLI `node-type`; stored as `obj_prefix` entries in `.fits/registry.json`) and link types, plus link index rewrites when renaming link types.
+//! CLI use-cases for `fits register`: abstract/concrete **node types** and link types.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -13,65 +13,110 @@ pub const default_repo_root: []const u8 = new_node.default_repo_root;
 /// Default objects directory name under the repository root.
 pub const default_objects_dir: []const u8 = new_node.default_objects_dir;
 
-/// Registers a new node type prefix in the registry.
-///
-/// Deprecated: use [`runNodeType`] via `fits register node-type`.
+/// Options for [`runNodeType`].
+pub const NodeTypeOpts = struct {
+    abstract: bool = false,
+    extends: ?[]const u8 = null,
+    create_folder: bool = false,
+};
+
+/// Registers a new node type (deprecated; requires `--extends` on `node-type`).
 pub fn runNew(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
-    node_prefix: []const u8,
+    type_name: []const u8,
 ) !void {
+    _ = allocator;
+    _ = io;
+    _ = repo_root;
     if (!builtin.is_test) {
-        std.debug.print("warning: `fits register new` is deprecated; use `fits register node-type {s}`\n", .{node_prefix});
+        std.debug.print("warning: `fits register new` is deprecated; use `fits register node-type {s} --extends <ABSTRACT>`\n", .{type_name});
     }
-    return runNodeType(allocator, io, repo_root, node_prefix, false);
+    return error.ExtendsRequired;
 }
 
-/// Registers a node type prefix; optionally records `create_folder` preference in `.fits/fits_config.toml`.
+/// Registers an abstract or concrete node type.
 pub fn runNodeType(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
-    obj_prefix: []const u8,
-    create_folder: bool,
+    type_name: []const u8,
+    opts: NodeTypeOpts,
 ) !void {
-    try fits_registry.validateObjPrefix(obj_prefix);
+    try fits_registry.validateTypeName(type_name);
+    if (opts.abstract and opts.extends != null) return error.AbstractRequiresNoExtends;
+    if (!opts.abstract and opts.extends == null) return error.ExtendsRequired;
 
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
-    try reg.registerNewPrefix(obj_prefix);
+    if (opts.abstract) {
+        try reg.registerAbstractType(type_name);
+    } else {
+        try fits_registry.validateTypeName(opts.extends.?);
+        try reg.registerConcreteType(type_name, opts.extends.?, null);
+    }
     try reg.save(io, repo_root);
 
-    if (create_folder) {
-        try fits_config.mergeRepoObjTypeCreateFolder(allocator, io, repo_root, obj_prefix, true);
+    if (opts.create_folder and !opts.abstract) {
+        const id_prefix = reg.idPrefixForType(type_name) orelse return error.UnknownNodeType;
+        try fits_config.mergeRepoObjTypeCreateFolder(allocator, io, repo_root, id_prefix, true);
     }
 
-    if (!builtin.is_test) std.debug.print("Registered node type {s}\n", .{obj_prefix});
+    if (!builtin.is_test) {
+        if (opts.abstract) {
+            std.debug.print("Registered abstract node type {s}\n", .{type_name});
+        } else {
+            std.debug.print("Registered concrete node type {s} (extends {s})\n", .{ type_name, opts.extends.? });
+        }
+    }
 }
 
 /// Deprecated alias for [`runNodeType`].
 pub const runObjType = runNodeType;
 
-/// Registers a link type from `out_obj_prefix` → `in_obj_prefix` instances (`OUT` points to `IN`).
+/// Registers abstract `req`/`doc` and concrete `REQ`/`DOC` (common test fixture).
+pub fn registerReqDocFixture(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+) !void {
+    try runNodeType(allocator, io, repo_root, "req", .{ .abstract = true });
+    try runNodeType(allocator, io, repo_root, "REQ", .{ .extends = "req" });
+    try runNodeType(allocator, io, repo_root, "doc", .{ .abstract = true });
+    try runNodeType(allocator, io, repo_root, "DOC", .{ .extends = "doc" });
+}
+
+/// Registers abstract `req` and concrete `REQ` and `BUG` (extends `req`).
+pub fn registerReqBugFixture(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+) !void {
+    try runNodeType(allocator, io, repo_root, "req", .{ .abstract = true });
+    try runNodeType(allocator, io, repo_root, "REQ", .{ .extends = "req" });
+    try runNodeType(allocator, io, repo_root, "BUG", .{ .extends = "req" });
+}
+
+/// Registers a link type from `out_type` → `in_type` instances (`OUT` points to `IN`).
 pub fn runLinkType(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
     link_type: []const u8,
-    in_obj_prefix: []const u8,
-    out_obj_prefix: []const u8,
+    in_type: []const u8,
+    out_type: []const u8,
     create_folder: bool,
 ) !void {
-    try fits_registry.validateObjPrefix(link_type);
-    try fits_registry.validateObjPrefix(in_obj_prefix);
-    try fits_registry.validateObjPrefix(out_obj_prefix);
+    try fits_registry.validateTypeName(link_type);
+    try fits_registry.validateTypeName(in_type);
+    try fits_registry.validateTypeName(out_type);
 
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
-    try reg.registerNewLinkType(link_type, in_obj_prefix, out_obj_prefix);
+    try reg.registerNewLinkType(link_type, in_type, out_type);
     try reg.save(io, repo_root);
 
     if (create_folder) {
@@ -81,20 +126,13 @@ pub fn runLinkType(
     if (!builtin.is_test) {
         std.debug.print("Registered link type {s} (IN {s} <- OUT {s})\n", .{
             link_type,
-            in_obj_prefix,
-            out_obj_prefix,
+            in_type,
+            out_type,
         });
     }
 }
 
-/// Lists node types only (tab-separated: prefix, next).
-///
-/// Parameters:
-/// - `allocator`: Used for registry load and sort buffer.
-/// - `io`: Process I/O for registry file operations.
-/// - `repo_root`: Repository root containing `.fits/`.
-///
-/// Returns: nothing on success, or registry I/O / JSON errors.
+/// Lists node types (tab-separated: type, abstract, extends, id_prefix, next).
 pub fn runListNodeTypes(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -103,30 +141,34 @@ pub fn runListNodeTypes(
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
-    const items = reg.prefixes.items;
-    const sorted = try allocator.alloc(fits_registry.Registry.PrefixEntry, items.len);
+    const items = reg.node_types.items;
+    const sorted = try allocator.alloc(fits_registry.Registry.NodeTypeEntry, items.len);
     defer allocator.free(sorted);
     @memcpy(sorted, items);
 
-    std.mem.sortUnstable(fits_registry.Registry.PrefixEntry, sorted, {}, struct {
-        fn less(_: void, a: fits_registry.Registry.PrefixEntry, b: fits_registry.Registry.PrefixEntry) bool {
-            return std.mem.order(u8, a.obj_prefix, b.obj_prefix) == .lt;
+    std.mem.sortUnstable(fits_registry.Registry.NodeTypeEntry, sorted, {}, struct {
+        fn less(_: void, a: fits_registry.Registry.NodeTypeEntry, b: fits_registry.Registry.NodeTypeEntry) bool {
+            return std.mem.order(u8, a.type, b.type) == .lt;
         }
     }.less);
 
     for (sorted) |entry| {
-        if (!builtin.is_test) std.debug.print("{s}\t{d}\n", .{ entry.obj_prefix, entry.next });
+        if (!builtin.is_test) {
+            if (entry.abstract) {
+                std.debug.print("{s}\ttrue\t\t\t0\n", .{entry.type});
+            } else {
+                std.debug.print("{s}\tfalse\t{s}\t{s}\t{d}\n", .{
+                    entry.type,
+                    entry.extends.?,
+                    entry.id_prefix.?,
+                    entry.next,
+                });
+            }
+        }
     }
 }
 
-/// Lists link types (tab-separated: link_type, in_obj_prefix, out_obj_prefix, next).
-///
-/// Parameters:
-/// - `allocator`: Used for registry load and sort buffer.
-/// - `io`: Process I/O for registry file operations.
-/// - `repo_root`: Repository root containing `.fits/`.
-///
-/// Returns: nothing on success, or registry I/O / JSON errors.
+/// Lists link types (tab-separated: link_type, in_type, out_type, next).
 pub fn runListLinkTypes(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -150,41 +192,25 @@ pub fn runListLinkTypes(
         if (!builtin.is_test) {
             std.debug.print("{s}\t{s}\t{s}\t{d}\n", .{
                 entry.link_type,
-                entry.in_obj_prefix,
-                entry.out_obj_prefix,
+                entry.in_type,
+                entry.out_type,
                 entry.next,
             });
         }
     }
 }
 
-/// Lists node types, then link types (with section headers on stdout).
-///
-/// Parameters:
-/// - `allocator`: Used for registry load.
-/// - `io`: Process I/O for registry file operations.
-/// - `repo_root`: Repository root containing `.fits/`.
-///
-/// Returns: nothing on success, or registry I/O / parse errors.
 pub fn runListAll(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
 ) !void {
-    if (!builtin.is_test) std.debug.print("# node types (prefix\tnext)\n", .{});
+    if (!builtin.is_test) std.debug.print("# node types (type\tabstract\textends\tid_prefix\tnext)\n", .{});
     try runListNodeTypes(allocator, io, repo_root);
-    if (!builtin.is_test) std.debug.print("# link types (link_type\tin\tout\tnext)\n", .{});
+    if (!builtin.is_test) std.debug.print("# link types (link_type\tin_type\tout_type\tnext)\n", .{});
     try runListLinkTypes(allocator, io, repo_root);
 }
 
-/// Lists node types then link types (delegates to [`runListAll`]).
-///
-/// Parameters:
-/// - `allocator`: Used for registry load.
-/// - `io`: Process I/O for registry file operations.
-/// - `repo_root`: Repository root containing `.fits/`.
-///
-/// Returns: nothing on success, or registry I/O / parse errors.
 pub fn runList(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -193,37 +219,21 @@ pub fn runList(
     return runListAll(allocator, io, repo_root);
 }
 
-/// Renames a node type or link type; node renames also relocate `objects/` instances.
-///
-/// Deprecated: use [`runRenameType`].
 pub fn runRename(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
     objects_rel: []const u8,
-    old_prefix: []const u8,
-    new_prefix: []const u8,
+    old_name: []const u8,
+    new_name: []const u8,
 ) !void {
     if (!builtin.is_test) {
         std.debug.print("warning: `fits register rename` is deprecated; use `fits register rename-type`\n", .{});
     }
-    return runRenameType(allocator, io, repo_root, objects_rel, old_prefix, new_prefix);
+    return runRenameType(allocator, io, repo_root, objects_rel, old_name, new_name);
 }
 
-/// Renames a registered node-type prefix or link type.
-///
-/// Node renames relocate issued instances under `objects/` and update `fits_config.toml` keys.
-/// Link renames rewrite `relations/links.jsonc` rows and optional `relations/<id>/` folders.
-///
-/// Parameters:
-/// - `allocator`: Path buffers and registry allocations.
-/// - `io`: Filesystem I/O.
-/// - `repo_root`: Repository root.
-/// - `objects_rel`: Objects directory relative to `repo_root` (unused for pure link renames beyond API symmetry).
-/// - `old_name`: Current prefix or link type name.
-/// - `new_name`: Target name (must pass prefix validation).
-///
-/// Returns: `error.UnknownRenameTarget` when neither a node-type prefix nor link type matches `old_name`.
+/// Renames a registered node type or link type.
 pub fn runRenameType(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -232,18 +242,32 @@ pub fn runRenameType(
     old_name: []const u8,
     new_name: []const u8,
 ) !void {
-    try fits_registry.validateObjPrefix(old_name);
-    try fits_registry.validateObjPrefix(new_name);
+    try fits_registry.validateTypeName(old_name);
+    try fits_registry.validateTypeName(new_name);
 
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
 
-    if (reg.hasObjPrefix(old_name)) {
-        const old_next = reg.nextForObjPrefix(old_name) orelse return error.UnknownObjPrefix;
-        try reg.renamePrefix(old_name, new_name);
-        try renameManagedInstances(allocator, io, repo_root, objects_rel, old_name, new_name, old_next);
+    if (reg.hasNodeType(old_name)) {
+        const idx = fits_registry.findNodeTypeIndex(reg.node_types.items, old_name).?;
+        const entry = reg.node_types.items[idx];
+        const old_id_prefix_owned = if (!entry.abstract)
+            try allocator.dupe(u8, entry.id_prefix.?)
+        else
+            null;
+        defer if (old_id_prefix_owned) |p| allocator.free(p);
+        const old_next = if (!entry.abstract) entry.next else 0;
+
+        try reg.renameNodeType(old_name, new_name);
         try reg.save(io, repo_root);
-        try fits_config.renameRepoObjTypeCreateFolderKey(allocator, io, repo_root, old_name, new_name);
+
+        if (old_id_prefix_owned) |prefix| {
+            if (std.mem.eql(u8, prefix, old_name)) {
+                const new_prefix = reg.idPrefixForType(new_name) orelse return error.UnknownNodeType;
+                try renameManagedInstances(allocator, io, repo_root, objects_rel, prefix, new_prefix, old_next);
+                try fits_config.renameRepoObjTypeCreateFolderKey(allocator, io, repo_root, prefix, new_prefix);
+            }
+        }
         if (!builtin.is_test) std.debug.print("Renamed node type {s} -> {s}\n", .{ old_name, new_name });
         return;
     }
@@ -320,7 +344,6 @@ fn renameManagedInstances(
         try renames.append(allocator, .{ .from_basename = from_copy, .to_basename = to_basename });
     }
 
-    // Pre-flight conflict check.
     for (renames.items) |pair| {
         const to_path = try std.fs.path.join(allocator, &.{ objects_path, pair.to_basename });
         defer allocator.free(to_path);
@@ -331,7 +354,6 @@ fn renameManagedInstances(
         }
     }
 
-    // Deterministic order by source basename.
     std.mem.sortUnstable(RenamePair, renames.items, {}, struct {
         fn less(_: void, a: RenamePair, b: RenamePair) bool {
             return std.mem.order(u8, a.from_basename, b.from_basename) == .lt;
@@ -359,18 +381,12 @@ fn pathExists(cwd: std.Io.Dir, io: std.Io, path: []const u8) bool {
 }
 
 /// Parses the numeric suffix from a basename like `REQ-1` or `REQ-3 Login flow.md`.
-///
-/// Parameters:
-/// - `obj_prefix`: Expected node type prefix.
-/// - `basename`: File or directory name under `objects/`.
-///
-/// Returns: the numeric suffix, or `null` if the name does not match the instance pattern.
-pub fn parseInstanceNumeric(obj_prefix: []const u8, basename: []const u8) ?u64 {
-    if (basename.len <= obj_prefix.len + 1) return null;
-    if (!std.mem.startsWith(u8, basename, obj_prefix)) return null;
-    if (basename[obj_prefix.len] != '-') return null;
+pub fn parseInstanceNumeric(id_prefix: []const u8, basename: []const u8) ?u64 {
+    if (basename.len <= id_prefix.len + 1) return null;
+    if (!std.mem.startsWith(u8, basename, id_prefix)) return null;
+    if (basename[id_prefix.len] != '-') return null;
 
-    var i: usize = obj_prefix.len + 1;
+    var i: usize = id_prefix.len + 1;
     if (i >= basename.len) return null;
 
     var n: u64 = 0;

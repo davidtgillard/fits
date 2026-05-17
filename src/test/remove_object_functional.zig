@@ -33,7 +33,8 @@ test "rm without git tombstones n only" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "req", .{ .abstract = true });
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", .{ .extends = "req" });
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     try remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1");
@@ -45,7 +46,8 @@ test "rm without git tombstones n only" {
     var reg = try fits_registry.Registry.load(alloc, std.testing.io, repo_abs, null);
     defer reg.deinit();
     try std.testing.expect(reg.isTombstoned("REQ", 1));
-    try std.testing.expectEqual(@as(?[]const u8, null), reg.prefixes.items[0].tombstones.items[0].git_commit);
+    const idx = fits_registry.findNodeTypeIndexByIdPrefix(reg.node_types.items, "REQ").?;
+    try std.testing.expectEqual(@as(?[]const u8, null), reg.node_types.items[idx].tombstones.items[0].git_commit);
 
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
     const obj2 = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-2" });
@@ -66,7 +68,8 @@ test "rm with git sets git_commit" {
 
     try initGitRepo(alloc, std.testing.io, repo_abs);
 
-    try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "req", .{ .abstract = true });
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", .{ .extends = "req" });
     // Use markdown so git tracks a file (empty directories are not versioned).
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{ .markdown = true });
 
@@ -77,7 +80,8 @@ test "rm with git sets git_commit" {
 
     var reg = try fits_registry.Registry.load(alloc, std.testing.io, repo_abs, null);
     defer reg.deinit();
-    const ts = reg.prefixes.items[0].tombstones.items[0];
+    const idx = fits_registry.findNodeTypeIndexByIdPrefix(reg.node_types.items, "REQ").?;
+    const ts = reg.node_types.items[idx].tombstones.items[0];
     try std.testing.expect(ts.git_commit != null);
     try std.testing.expectEqual(@as(usize, fits_registry.git_commit_hex_len), ts.git_commit.?.len);
 }
@@ -93,7 +97,8 @@ test "rm twice errors" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "req", .{ .abstract = true });
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", .{ .extends = "req" });
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     try remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1");

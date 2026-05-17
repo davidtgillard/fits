@@ -1,5 +1,4 @@
-//! Functional tests for [`Registry`](../adapters/fs/fits_registry.zig): temp directories, real I/O, and JSON on disk.
-//! Keeps heavy scenarios out of the adapter module so production code stays focused.
+//! Functional tests for [`Registry`](../adapters/fs/fits_registry.zig).
 
 const std = @import("std");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
@@ -11,10 +10,10 @@ test "load rejects invalid registry with RegistryInvalid" {
     const alloc = std.testing.allocator;
     const json =
         \\{
-        \\  "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
+        \\  "description": "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
         \\  "version": 1,
-        \\  "kind": "fits-registry-v1",
-        \\  "prefixes": [{ "obj_prefix": "BAD-PREFIX", "next": 0 }]
+        \\  "kind": "fits-registry",
+        \\  "node_types": [{ "type": "BAD-PREFIX", "extends": "req", "next": 0 }]
         \\}
     ;
 
@@ -34,16 +33,17 @@ test "load rejects invalid registry with RegistryInvalid" {
     try std.testing.expect(validation_report.issues.items.len >= 2);
 }
 
-test "load merges duplicate prefix with max next" {
+test "load merges duplicate concrete type with max next" {
     const alloc = std.testing.allocator;
     const json =
         \\{
-        \\  "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
+        \\  "description": "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
         \\  "version": 1,
-        \\  "kind": "fits-registry-v1",
-        \\  "prefixes": [
-        \\    { "obj_prefix": "REQ", "next": 3 },
-        \\    { "obj_prefix": "REQ", "next": 7 }
+        \\  "kind": "fits-registry",
+        \\  "node_types": [
+        \\    { "type": "req", "abstract": true },
+        \\    { "type": "REQ", "extends": "req", "next": 3 },
+        \\    { "type": "REQ", "extends": "req", "next": 7 }
         \\  ]
         \\}
     ;
@@ -64,7 +64,7 @@ test "load merges duplicate prefix with max next" {
     try std.testing.expectEqual(@as(u64, 7), try reg.allocateNextNumeric("REQ"));
 }
 
-test "save and load roundtrip writes obj_prefix" {
+test "save and load roundtrip writes node_types" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -78,7 +78,8 @@ test "save and load roundtrip writes obj_prefix" {
     {
         var reg: Registry = .{ .allocator = alloc };
         defer reg.deinit();
-        try reg.registerNewPrefix("Z");
+        try reg.registerAbstractType("z");
+        try reg.registerConcreteType("Z", "z", null);
         _ = try reg.allocateNextNumeric("Z");
         try reg.save(std.testing.io, repo_abs);
     }
@@ -93,8 +94,8 @@ test "save and load roundtrip writes obj_prefix" {
     defer alloc.free(contents);
     try std.testing.expect(std.mem.indexOf(u8, contents, "\"description\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, contents, registry_validate.registry_description) != null);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"version\": 1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"node_types\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"version\": 1") != null or std.mem.indexOf(u8, contents, "\"version\":1") != null);
 }
 
 test "tombstone with git_commit roundtrip" {
@@ -113,7 +114,8 @@ test "tombstone with git_commit roundtrip" {
     {
         var reg: Registry = .{ .allocator = alloc };
         defer reg.deinit();
-        try reg.registerNewPrefix("REQ");
+        try reg.registerAbstractType("req");
+        try reg.registerConcreteType("REQ", "req", null);
         try reg.tombstoneNumeric("REQ", 1, .{ .git_commit = sha });
         try reg.tombstoneNumeric("REQ", 2, .{});
         try reg.save(std.testing.io, repo_abs);
@@ -123,9 +125,11 @@ test "tombstone with git_commit roundtrip" {
     defer reg2.deinit();
     try std.testing.expect(reg2.isTombstoned("REQ", 1));
     try std.testing.expect(reg2.isTombstoned("REQ", 2));
-    const ts1 = reg2.prefixes.items[0].tombstones.items[0];
+
+    const concrete_idx = fits_registry.findNodeTypeIndexByIdPrefix(reg2.node_types.items, "REQ").?;
+    const ts1 = reg2.node_types.items[concrete_idx].tombstones.items[0];
     try std.testing.expectEqualStrings(sha, ts1.git_commit.?);
-    try std.testing.expectEqual(@as(?[]const u8, null), reg2.prefixes.items[0].tombstones.items[1].git_commit);
+    try std.testing.expectEqual(@as(?[]const u8, null), reg2.node_types.items[concrete_idx].tombstones.items[1].git_commit);
 
     const reg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "registry.json" });
     defer alloc.free(reg_sub);

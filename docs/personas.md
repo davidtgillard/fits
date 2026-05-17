@@ -100,7 +100,7 @@ Common persona allow lists omit `init`, `register`, and `update`.
 | `mode` | `fixed` (default) or `mutable` |
 | `snapshot` | Path to snapshot JSON relative to package root (default `registry.snapshot.json`) |
 
-**Fixed mode:** before `new`, `new link`, and `rm`, the host verifies that `.fits/registry.json` matches the snapshot (node prefixes and link types/endpoints; counters and tombstones are ignored).
+**Fixed mode:** before `new`, `new link`, and `rm`, the host verifies that `.fits/registry.json` matches the snapshot (node types—including abstract/concrete shape—and link types/endpoints; counters and tombstones are ignored). `fits new node` is gated on **id prefixes** present in the snapshot.
 
 ### `[validate]`
 

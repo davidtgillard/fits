@@ -15,7 +15,8 @@ test "new node creates objects dir and registry entry when prefix registered" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNew(alloc, std.testing.io, repo_abs, "REQ");
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "req", .{ .abstract = true });
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", .{ .extends = "req" });
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     const reg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "registry.json" });
@@ -42,5 +43,5 @@ test "new node fails without registered prefix" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try std.testing.expectError(error.UnknownObjPrefix, new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{}));
+    try std.testing.expectError(error.UnknownIdPrefix, new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{}));
 }

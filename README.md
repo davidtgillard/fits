@@ -31,8 +31,8 @@ Usage:
   fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
   fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
   fits rm <NODE_ID or LINK_ID>
-  fits register node-type <NODE_PREFIX> [--create-folder]
-  fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]
+  fits register node-type <TYPE> [--abstract | --extends <ABSTRACT>] [--create-folder]
+  fits register link-type <LINK_TYPE> <IN_TYPE> <OUT_TYPE> [--create-folder]
   fits register list [node-types|link-types]
   fits register rename-type <OLD> <NEW>
   fits register new <NODE_PREFIX>   (deprecated)
@@ -43,7 +43,7 @@ Usage:
 
 ### `fits init`
 
-Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty prefixes and link types), `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/latticedb/`, and `relations/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `relations/links.jsonc` already exists, the command prints an error and exits without changing files.
+Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty `node_types` and `link_types`), `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/latticedb/`, and `relations/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `relations/links.jsonc` already exists, the command prints an error and exits without changing files.
 
 ```sh
 fits init
@@ -64,27 +64,32 @@ fits validate --hooks
 
 ### `fits register`
 
-Manages **node type prefixes** and **link types** in `.fits/registry.json`. Node types must be registered before `fits new node`; link types must be registered before `fits new link` or before you add matching rows to `relations/links.jsonc` by hand.
+Manages **node types** (abstract and concrete) and **link types** in `.fits/registry.json`. Concrete node types must be registered before `fits new node`; link types must be registered before `fits new link` or before you add matching rows to `relations/links.jsonc` by hand.
 
 The registry format is defined by [`schemas/registry.schema.json`](schemas/registry.schema.json). **Do not edit `.fits/registry.json` by hand.** Field-level detail: [`docs/fits_registry.md`](docs/fits_registry.md). Directed links and `relations/links.jsonc`: [`docs/fits_links.md`](docs/fits_links.md).
 
-#### `fits register node-type <NODE_PREFIX> [--create-folder]`
+#### `fits register node-type <TYPE> [--abstract | --extends <ABSTRACT>] [--create-folder]`
 
-Registers a node type (stored as an `obj_prefix` entry in the registry). With `--create-folder`, `fits` records `create_folder = true` under `[obj_types.<PREFIX>]` in `.fits/fits_config.toml` (merged without clobbering other keys).
+Registers a node type in the registry:
+
+- **`--abstract`**: uninstantiable type (no `objects/` allocation, no counter). Mutually exclusive with `--extends`.
+- **`--extends <ABSTRACT>`**: concrete type that extends an existing **abstract** parent. Required for non-abstract registration.
+- **`--create-folder`**: for concrete types only; sets `create_folder = true` under `[obj_types.<ID_PREFIX>]` in `.fits/fits_config.toml`.
 
 ```sh
-fits register node-type REQ
-fits register node-type SPEC --create-folder
+fits register node-type req --abstract
+fits register node-type REQ --extends req
+fits register node-type SPEC --extends req --create-folder
 ```
 
-#### `fits register link-type <LINK_TYPE> <IN_NODE_TYPE> <OUT_NODE_TYPE> [--create-folder]`
+#### `fits register link-type <LINK_TYPE> <IN_TYPE> <OUT_TYPE> [--create-folder]`
 
-Registers a link type: links go **from** `OUT_NODE_TYPE` node instances **to** `IN_NODE_TYPE` node instances. Both node-type prefixes must already exist. `--create-folder` sets `[link_types.<LINK_TYPE>] create_folder = true` in `.fits/fits_config.toml`.
+Registers a link type: links go **from** `OUT_TYPE` node instances **to** `IN_TYPE` instances. `IN_TYPE` and `OUT_TYPE` are registry **type names** (abstract or concrete), not id prefixes. Both must already be registered. `--create-folder` sets `[link_types.<LINK_TYPE>] create_folder = true` in `.fits/fits_config.toml`.
 
 ```sh
-fits register node-type REQ
-fits register node-type DOC
-fits register link-type implements REQ DOC --create-folder
+fits register node-type doc --abstract
+fits register node-type DOC --extends doc
+fits register link-type implements req DOC --create-folder
 ```
 
 #### `fits register list [node-types|link-types]`
@@ -98,7 +103,7 @@ fits register list node-types
 
 #### `fits register rename-type <OLD> <NEW>`
 
-Renames a **node-type** prefix (and renames issued instances under `objects/`) or a **link** type (rewrites `relations/links.jsonc` and optional `relations/<id>/` directories). The name must exist in the registry as exactly one of those kinds.
+Renames a **node type** (abstract or concrete; renames issued instances under `objects/` when the concrete `id_prefix` matches the old type name) or a **link** type (rewrites `relations/links.jsonc` and optional `relations/<id>/` directories). The name must exist in the registry as exactly one of those kinds.
 
 ```sh
 fits register rename-type REQ FOO
@@ -106,11 +111,11 @@ fits register rename-type REQ FOO
 
 #### `fits register rm <TYPE> [--force] [--preserve-local] [--cascade]`
 
-Unregisters a **node-type** prefix or **link** type. Without `--force`, the command fails if any live instances exist in the registry or on disk (`objects/` for nodes; `relations/links.jsonc` and `relations/<id>/` for links).
+Unregisters a **node type** (abstract or concrete) or **link** type. Without `--force`, the command fails if any live instances exist in the registry or on disk (`objects/` for concrete nodes; `relations/links.jsonc` and `relations/<id>/` for links). Abstract types cannot be removed while concrete children or referencing link types exist unless **`--force --cascade`**.
 
 - **`--force`**: remove non-tombstoned instances, then drop the type from `.fits/registry.json` and optional config keys.
 - **`--preserve-local`**: with `--force`, update the registry and link index but leave files under `objects/` and `relations/` on disk.
-- **`--cascade`**: with `--force` on a **node type**, also remove dangling link rows that reference that prefix and unregister link types that use it as an in/out node type. Required when `--force` would otherwise leave dangling links.
+- **`--cascade`**: with `--force` on a **node type**, also remove dangling link rows, unregister link types that reference the type (or its id prefixes), and for **abstract** types remove all concrete children first. Required when `--force` would otherwise leave dangling links or child types.
 
 Tombstoned numeric ids are never deleted from disk, regardless of flags.
 
@@ -131,32 +136,34 @@ fits register rm implements --force
 
 #### `fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]`
 
-Creates a new **node** under `objects/` using the registry. Each node gets an id of the form `{NODE_PREFIX}-{n}`, where `n` is a monotonically increasing counter for that prefix (ids are not reused after tombstoning). The node type must already be registered.
+Creates a new **node** under `objects/` using the registry. Each node gets an id of the form `{ID_PREFIX}-{n}`, where `n` is a monotonically increasing counter for that concrete type’s id prefix (ids are not reused after tombstoning). The id prefix must belong to a **concrete** registered type.
 
 - **Layout vs config:** When `--markdown` is not passed, `fits` reads `.fits/fits_config.toml` for `[obj_types.<PREFIX>] create_folder`. If the key is **missing**, behavior matches older releases: an **empty directory** node. If `create_folder = false`, a **Markdown file** is created instead; if `true`, a **directory** is created. `--markdown` always forces a Markdown file.
 - **`--markdown`**: Force a Markdown file in the new node path.
 - **`--`**: End of flags; everything after it is **title words**, joined with spaces for a human-readable display name suffix.
 
-**Links:** `fits new link <LINK_TYPE> <IN_ID> <OUT_ID>` appends one row to `relations/links.jsonc` with the next issued link id (`{LINK_TYPE}-{n}`). Arguments mirror `fits register link-type`: `IN_ID` must use the registry’s **in** node-type prefix for that link type and `OUT_ID` the **out** prefix (the stored edge is `{out: OUT_ID, in: IN_ID}`). Both node ids must be issued and not tombstoned. See [`docs/fits_links.md`](docs/fits_links.md).
+**Links:** `fits new link <LINK_TYPE> <IN_ID> <OUT_ID>` appends one row to `relations/links.jsonc` with the next issued link id (`{LINK_TYPE}-{n}`). Endpoint node ids must match the registered **in** / **out** types for that link type (abstract endpoints accept any concrete type extending that abstract). The stored edge is `{out: OUT_ID, in: IN_ID}`. Both node ids must be issued and not tombstoned. See [`docs/fits_links.md`](docs/fits_links.md).
 
 Examples:
 
 ```sh
-fits register node-type REQ
+fits register node-type req --abstract
+fits register node-type REQ --extends req
 fits new node REQ
 fits new node REQ --markdown
 fits new node REQ --markdown -- User login flow
 
-fits register node-type DOC
-fits register link-type implements REQ DOC
+fits register node-type doc --abstract
+fits register node-type DOC --extends doc
+fits register link-type implements req DOC
 fits new node REQ
 fits new node DOC
-fits new link implements REQ-1 DOC-1
+fits new link implements DOC-1 REQ-1
 ```
 
 ### `fits rm`
 
-Removes a graph **object** (a **node** under `objects/` or a **link** row) by id (e.g. `REQ-3` or `implements-1`). The CLI disambiguates using the registry: node-type prefixes are checked first, then link types.
+Removes a graph **object** (a **node** under `objects/` or a **link** row) by id (e.g. `REQ-3` or `implements-1`). The CLI disambiguates using the registry: concrete id prefixes are checked first, then link types.
 
 **Nodes:** matching paths under `objects/` with that numeric suffix are removed.
 
@@ -169,7 +176,8 @@ The numeric id is **tombstoned** in `.fits/registry.json` so it cannot be reissu
 When the repo root is a git repository (has `.fits/../.git` at the repo root), `fits rm` runs `git rm` and creates a commit with message `fits rm: {id}`. Without git at the repo root, removal still tombstones the id but omits `git_commit`.
 
 ```sh
-fits register node-type REQ
+fits register node-type req --abstract
+fits register node-type REQ --extends req
 fits new node REQ
 fits rm REQ-1
 fits new node REQ          # creates REQ-2, not REQ-1

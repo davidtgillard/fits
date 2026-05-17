@@ -23,7 +23,7 @@
       }
     },
     "registry": {
-      "description": "JSON object matching fits-registry-v1 (same shape as .fits/registry.json).",
+      "description": "JSON object with the same shape as .fits/registry.json.",
       "type": "object"
     },
     "graph": {

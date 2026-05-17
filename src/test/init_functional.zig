@@ -20,7 +20,7 @@ test "init creates registry links config and latticedb" {
     defer alloc.free(reg_sub);
     const reg_contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
     defer alloc.free(reg_contents);
-    try std.testing.expect(std.mem.indexOf(u8, reg_contents, "\"prefixes\": []") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reg_contents, "\"node_types\": []") != null);
     try std.testing.expect(std.mem.indexOf(u8, reg_contents, "\"link_types\": []") != null);
 
     const links_sub = try std.fs.path.join(alloc, &.{ "repo", "relations", "links.jsonc" });

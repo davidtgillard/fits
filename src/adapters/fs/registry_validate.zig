@@ -10,15 +10,11 @@ const ObjectMap = std.json.ObjectMap;
 /// Embedded schema (contract for tooling and drift tests).
 pub const schema_json = @embedFile("../../schemas/registry.schema.json");
 
-pub const registry_kind: []const u8 = "fits-registry-v1";
-
-/// Legacy description string still accepted when validating existing registries.
-pub const registry_description_legacy: []const u8 =
-    "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.";
+pub const registry_kind: []const u8 = "fits-registry";
 
 /// Canonical description written by [`Registry.save`] and expected for new saves.
 pub const registry_description: []const u8 =
-    "Tracks registered object type prefixes, link types, numeric id counters, and tombstones for objects and links. Do not edit by hand; use the fits CLI.";
+    "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.";
 
 /// One validation finding with a JSON-pointer-like path and message.
 pub const ValidationIssue = struct {
@@ -84,8 +80,8 @@ fn validateValue(report: *ValidationReport, path: []const u8, value: JsonValue) 
         },
     };
 
-    const allowed_top = [_][]const u8{ "description", "version", "kind", "prefixes", "link_types" };
-    const required_top = [_][]const u8{ "description", "version", "kind", "prefixes" };
+    const allowed_top = [_][]const u8{ "description", "version", "kind", "node_types", "link_types" };
+    const required_top = [_][]const u8{ "description", "version", "kind", "node_types" };
     checkObjectShape(report, path, obj, &allowed_top, &required_top);
 
     if (obj.get("description")) |dv| {
@@ -94,7 +90,7 @@ fn validateValue(report: *ValidationReport, path: []const u8, value: JsonValue) 
 
     const version_val = obj.get("version");
     const kind_val = obj.get("kind");
-    const prefixes_val = obj.get("prefixes");
+    const node_types_val = obj.get("node_types");
     const link_types_val = obj.get("link_types");
 
     if (version_val) |v| {
@@ -105,18 +101,18 @@ fn validateValue(report: *ValidationReport, path: []const u8, value: JsonValue) 
         validateKind(report, path, kv);
     }
 
-    const prefixes_array: ?std.json.Array = if (prefixes_val) |pv| switch (pv) {
+    const node_types_array: ?std.json.Array = if (node_types_val) |pv| switch (pv) {
         .array => |a| a,
         else => blk: {
-            const prefixes_path = joinPath(report.allocator, path, "prefixes") catch break :blk null;
-            defer report.allocator.free(prefixes_path);
-            pushIssueStatic(report, prefixes_path, "must be an array");
+            const nt_path = joinPath(report.allocator, path, "node_types") catch break :blk null;
+            defer report.allocator.free(nt_path);
+            pushIssueStatic(report, nt_path, "must be an array");
             break :blk null;
         },
     } else null;
 
-    if (prefixes_array) |prefixes| {
-        validatePrefixes(report, path, prefixes);
+    if (node_types_array) |node_types| {
+        validateNodeTypes(report, path, node_types);
     }
 
     const link_types_array: ?std.json.Array = if (link_types_val) |lv| switch (lv) {
@@ -133,9 +129,9 @@ fn validateValue(report: *ValidationReport, path: []const u8, value: JsonValue) 
         validateLinkTypes(report, path, link_types);
     }
 
-    if (prefixes_array) |prefixes| {
+    if (node_types_array) |node_types| {
         if (link_types_array) |link_types| {
-            crossValidatePrefixesAndLinkTypes(report, path, prefixes, link_types);
+            crossValidateNodeTypesAndLinkTypes(report, path, node_types, link_types);
         }
     }
 }
@@ -152,9 +148,8 @@ fn validateDescription(report: *ValidationReport, base_path: []const u8, value: 
         },
     };
 
-    const ok = std.mem.eql(u8, actual, registry_description) or std.mem.eql(u8, actual, registry_description_legacy);
-    if (!ok) {
-        pushIssueStatic(report, desc_path, "must be the canonical fits registry description (or the pre-links legacy description)");
+    if (!std.mem.eql(u8, actual, registry_description)) {
+        pushIssueStatic(report, desc_path, "must be the canonical fits registry description");
     }
 }
 
@@ -176,21 +171,22 @@ fn validateKind(report: *ValidationReport, base_path: []const u8, value: JsonVal
     }
 }
 
-fn validatePrefixes(report: *ValidationReport, base_path: []const u8, prefixes: std.json.Array) void {
-    for (prefixes.items, 0..) |entry, i| {
-        const prefix_path = formatIndexedPath(report, base_path, "prefixes", i) catch return;
-        defer report.allocator.free(prefix_path);
+fn validateNodeTypes(report: *ValidationReport, base_path: []const u8, node_types: std.json.Array) void {
+    for (node_types.items, 0..) |entry, i| {
+        const nt_path = formatIndexedPath(report, base_path, "node_types", i) catch return;
+        defer report.allocator.free(nt_path);
 
         const obj = switch (entry) {
             .object => |o| o,
             else => {
-                pushIssueStatic(report, prefix_path, "must be a JSON object");
+                pushIssueStatic(report, nt_path, "must be a JSON object");
                 continue;
             },
         };
 
-        validatePrefixObject(report, prefix_path, obj);
+        validateNodeTypeObject(report, nt_path, obj);
     }
+
 }
 
 fn validateLinkTypes(report: *ValidationReport, base_path: []const u8, link_types: std.json.Array) void {
@@ -239,36 +235,36 @@ fn validateLinkTypes(report: *ValidationReport, base_path: []const u8, link_type
 }
 
 fn validateLinkTypeObject(report: *ValidationReport, lt_path: []const u8, obj: ObjectMap) void {
-    const allowed = [_][]const u8{ "link_type", "in_obj_prefix", "out_obj_prefix", "next", "tombstones" };
-    const required = [_][]const u8{ "link_type", "in_obj_prefix", "out_obj_prefix", "next" };
+    const allowed = [_][]const u8{ "link_type", "in_type", "out_type", "next", "tombstones" };
+    const required = [_][]const u8{ "link_type", "in_type", "out_type", "next" };
     checkObjectShape(report, lt_path, obj, &allowed, &required);
 
-    if (obj.get("link_type")) |v| validateObjPrefixField(report, lt_path, "link_type", v);
-    if (obj.get("in_obj_prefix")) |v| validateObjPrefixField(report, lt_path, "in_obj_prefix", v);
-    if (obj.get("out_obj_prefix")) |v| validateObjPrefixField(report, lt_path, "out_obj_prefix", v);
+    if (obj.get("link_type")) |v| validateTypeNameField(report, lt_path, "link_type", v);
+    if (obj.get("in_type")) |v| validateTypeNameField(report, lt_path, "in_type", v);
+    if (obj.get("out_type")) |v| validateTypeNameField(report, lt_path, "out_type", v);
     if (obj.get("next")) |nv| validateNextField(report, lt_path, "next", nv);
     if (obj.get("tombstones")) |tv| validateTombstonesArray(report, lt_path, tv);
 }
 
-fn crossValidatePrefixesAndLinkTypes(
+fn crossValidateNodeTypesAndLinkTypes(
     report: *ValidationReport,
     base_path: []const u8,
-    prefixes: std.json.Array,
+    node_types: std.json.Array,
     link_types: std.json.Array,
 ) void {
-    var prefixes_set = std.StringHashMap(void).init(report.allocator);
-    defer prefixes_set.deinit();
+    var types_set = std.StringHashMap(void).init(report.allocator);
+    defer types_set.deinit();
 
-    for (prefixes.items) |entry| {
+    for (node_types.items) |entry| {
         const obj = switch (entry) {
             .object => |o| o,
             else => continue,
         };
-        const pfx = switch (obj.get("obj_prefix") orelse continue) {
+        const tn = switch (obj.get("type") orelse continue) {
             .string => |s| s,
             else => continue,
         };
-        prefixes_set.put(pfx, {}) catch return;
+        types_set.put(tn, {}) catch return;
     }
 
     for (link_types.items, 0..) |entry, i| {
@@ -285,45 +281,72 @@ fn crossValidatePrefixesAndLinkTypes(
             else => continue,
         };
 
-        if (prefixes_set.contains(lt_name)) {
+        if (types_set.contains(lt_name)) {
             const lt_field = formatFieldPath(report, lt_path, "link_type") catch return;
             defer report.allocator.free(lt_field);
-            const msg = std.fmt.allocPrint(report.allocator, "link_type \"{s}\" collides with an object type prefix", .{lt_name}) catch return;
+            const msg = std.fmt.allocPrint(report.allocator, "link_type \"{s}\" collides with a node type name", .{lt_name}) catch return;
             pushIssueOwned(report, lt_field, msg);
         }
 
-        const in_p = switch (obj.get("in_obj_prefix") orelse continue) {
+        const in_t = switch (obj.get("in_type") orelse continue) {
             .string => |s| s,
             else => continue,
         };
-        if (!prefixes_set.contains(in_p)) {
-            const fpath = formatFieldPath(report, lt_path, "in_obj_prefix") catch return;
+        if (!types_set.contains(in_t)) {
+            const fpath = formatFieldPath(report, lt_path, "in_type") catch return;
             defer report.allocator.free(fpath);
-            const msg = std.fmt.allocPrint(report.allocator, "in_obj_prefix \"{s}\" is not a registered object type", .{in_p}) catch return;
+            const msg = std.fmt.allocPrint(report.allocator, "in_type \"{s}\" is not a registered node type", .{in_t}) catch return;
             pushIssueOwned(report, fpath, msg);
         }
 
-        const out_p = switch (obj.get("out_obj_prefix") orelse continue) {
+        const out_t = switch (obj.get("out_type") orelse continue) {
             .string => |s| s,
             else => continue,
         };
-        if (!prefixes_set.contains(out_p)) {
-            const fpath = formatFieldPath(report, lt_path, "out_obj_prefix") catch return;
+        if (!types_set.contains(out_t)) {
+            const fpath = formatFieldPath(report, lt_path, "out_type") catch return;
             defer report.allocator.free(fpath);
-            const msg = std.fmt.allocPrint(report.allocator, "out_obj_prefix \"{s}\" is not a registered object type", .{out_p}) catch return;
+            const msg = std.fmt.allocPrint(report.allocator, "out_type \"{s}\" is not a registered node type", .{out_t}) catch return;
             pushIssueOwned(report, fpath, msg);
         }
     }
 }
 
-fn validatePrefixObject(report: *ValidationReport, prefix_path: []const u8, obj: ObjectMap) void {
-    const allowed = [_][]const u8{ "obj_prefix", "next", "tombstones" };
-    const required = [_][]const u8{ "obj_prefix", "next" };
-    checkObjectShape(report, prefix_path, obj, &allowed, &required);
+fn validateNodeTypeObject(report: *ValidationReport, nt_path: []const u8, obj: ObjectMap) void {
+    const is_abstract = obj.get("abstract") != null and switch (obj.get("abstract").?) {
+        .bool => |b| b,
+        else => false,
+    };
 
-    if (obj.get("obj_prefix")) |pv| validateObjPrefixField(report, prefix_path, "obj_prefix", pv);
-    if (obj.get("next")) |nv| validateNextField(report, prefix_path, "next", nv);
-    if (obj.get("tombstones")) |tv| validateTombstonesArray(report, prefix_path, tv);
+    if (is_abstract) {
+        const allowed = [_][]const u8{ "type", "abstract" };
+        const required = [_][]const u8{ "type", "abstract" };
+        checkObjectShape(report, nt_path, obj, &allowed, &required);
+        if (obj.get("type")) |v| validateTypeNameField(report, nt_path, "type", v);
+        if (obj.get("abstract")) |av| validateAbstractTrue(report, nt_path, av);
+        return;
+    }
+
+    const allowed = [_][]const u8{ "type", "abstract", "id_prefix", "extends", "next", "tombstones" };
+    const required = [_][]const u8{ "type", "extends", "next" };
+    checkObjectShape(report, nt_path, obj, &allowed, &required);
+
+    if (obj.get("type")) |v| validateTypeNameField(report, nt_path, "type", v);
+    if (obj.get("id_prefix")) |v| validateTypeNameField(report, nt_path, "id_prefix", v);
+    if (obj.get("extends")) |v| validateTypeNameField(report, nt_path, "extends", v);
+    if (obj.get("next")) |nv| validateNextField(report, nt_path, "next", nv);
+    if (obj.get("tombstones")) |tv| validateTombstonesArray(report, nt_path, tv);
+}
+
+fn validateAbstractTrue(report: *ValidationReport, nt_path: []const u8, value: JsonValue) void {
+    const field_path = formatFieldPath(report, nt_path, "abstract") catch return;
+    defer report.allocator.free(field_path);
+    switch (value) {
+        .bool => |b| {
+            if (!b) pushIssueStatic(report, field_path, "must be true for abstract node types");
+        },
+        else => pushIssueStatic(report, field_path, "must be a boolean"),
+    }
 }
 
 fn validateTombstonesArray(report: *ValidationReport, prefix_path: []const u8, value: JsonValue) void {
@@ -387,7 +410,7 @@ fn checkObjectShape(
     }
 }
 
-fn validateObjPrefixField(report: *ValidationReport, base_path: []const u8, field: []const u8, value: JsonValue) void {
+fn validateTypeNameField(report: *ValidationReport, base_path: []const u8, field: []const u8, value: JsonValue) void {
     const field_path = formatFieldPath(report, base_path, field) catch return;
     defer report.allocator.free(field_path);
 
@@ -399,11 +422,11 @@ fn validateObjPrefixField(report: *ValidationReport, base_path: []const u8, fiel
         },
     };
 
-    validateObjPrefixString(s) catch {
+    validateTypeNameString(s) catch {
         pushIssueStatic(
             report,
             field_path,
-            "must match object prefix rules (ASCII letter, then letters, digits, or underscore)",
+            "must match type name rules (ASCII letter, then letters, digits, or underscore)",
         );
     };
 }
@@ -555,13 +578,13 @@ fn formatIndexedPath(report: *ValidationReport, base: []const u8, field: []const
     return std.fmt.allocPrint(report.allocator, "{s}.{s}[{d}]", .{ base, field, index });
 }
 
-fn validateObjPrefixString(obj_prefix: []const u8) error{InvalidObjPrefix}!void {
-    if (obj_prefix.len == 0) return error.InvalidObjPrefix;
-    const c0 = obj_prefix[0];
-    if (!std.ascii.isAlphabetic(c0)) return error.InvalidObjPrefix;
-    for (obj_prefix[1..]) |c| {
+fn validateTypeNameString(type_name: []const u8) error{InvalidTypeName}!void {
+    if (type_name.len == 0) return error.InvalidTypeName;
+    const c0 = type_name[0];
+    if (!std.ascii.isAlphabetic(c0)) return error.InvalidTypeName;
+    for (type_name[1..]) |c| {
         if (std.ascii.isAlphanumeric(c) or c == '_') continue;
-        return error.InvalidObjPrefix;
+        return error.InvalidTypeName;
     }
 }
 
@@ -585,9 +608,9 @@ test "validateRegistryDocument reports multiple issues" {
         \\{
         \\  "version": 3,
         \\  "kind": "wrong",
-        \\  "prefixes": [
-        \\    { "obj_prefix": "9X", "next": 0, "tombstones": [{ "n": 0, "git_commit": "short" }] },
-        \\    { "obj_prefix": "REQ", "next": 1, "extra": true }
+        \\  "node_types": [
+        \\    { "type": "9X", "extends": "req", "next": 0, "tombstones": [{ "n": 0, "git_commit": "short" }] },
+        \\    { "type": "REQ", "extends": "req", "next": 1, "extra": true }
         \\  ],
         \\  "extra_field": true
         \\}
@@ -603,14 +626,18 @@ test "validateRegistryDocument accepts valid registry" {
     const alloc = std.testing.allocator;
     const json =
         \\{
-        \\  "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
+        \\  "description": "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
         \\  "version": 1,
-        \\  "kind": "fits-registry-v1",
-        \\  "prefixes": [{
-        \\    "obj_prefix": "REQ",
-        \\    "next": 2,
-        \\    "tombstones": [{ "n": 1, "git_commit": "a1b2c3d4e5f6789012345678901234567890abcd" }]
-        \\  }]
+        \\  "kind": "fits-registry",
+        \\  "node_types": [
+        \\    { "type": "req", "abstract": true },
+        \\    {
+        \\      "type": "REQ",
+        \\      "extends": "req",
+        \\      "next": 2,
+        \\      "tombstones": [{ "n": 1, "git_commit": "a1b2c3d4e5f6789012345678901234567890abcd" }]
+        \\    }
+        \\  ]
         \\}
     ;
 
@@ -619,14 +646,14 @@ test "validateRegistryDocument accepts valid registry" {
     try std.testing.expect(report.isEmpty());
 }
 
-test "validateRegistryDocument obj_prefix and next errors" {
+test "validateRegistryDocument type name and next errors" {
     const alloc = std.testing.allocator;
     const json =
         \\{
-        \\  "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
+        \\  "description": "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
         \\  "version": 1,
-        \\  "kind": "fits-registry-v1",
-        \\  "prefixes": [{ "obj_prefix": "9A", "next": 0 }]
+        \\  "kind": "fits-registry",
+        \\  "node_types": [{ "type": "9A", "extends": "req", "next": 0 }]
         \\}
     ;
 
@@ -635,14 +662,14 @@ test "validateRegistryDocument obj_prefix and next errors" {
     try std.testing.expect(report.issues.items.len >= 2);
 }
 
-test "validateRegistryDocument rejects legacy slug field" {
+test "validateRegistryDocument rejects unknown obj_prefix field" {
     const alloc = std.testing.allocator;
     const json =
         \\{
-        \\  "description": "Tracks registered object type prefixes, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
+        \\  "description": "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.",
         \\  "version": 1,
-        \\  "kind": "fits-registry-v1",
-        \\  "prefixes": [{ "slug": "REQ", "next": 1 }]
+        \\  "kind": "fits-registry",
+        \\  "node_types": [{ "obj_prefix": "REQ", "next": 1 }]
         \\}
     ;
 
@@ -652,5 +679,5 @@ test "validateRegistryDocument rejects legacy slug field" {
 }
 
 test "schema file is embedded" {
-    try std.testing.expect(std.mem.indexOf(u8, schema_json, "fits-registry-v1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, schema_json, "fits-registry") != null);
 }

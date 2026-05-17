@@ -8,6 +8,11 @@ const new_link = @import("../app/new_link.zig");
 const remove_object = @import("../app/remove_object.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
 
+fn registerReq(alloc: std.mem.Allocator, io: std.Io, repo: []const u8) !void {
+    try register.runNodeType(alloc, io, repo, "req", .{ .abstract = true });
+    try register.runNodeType(alloc, io, repo, "REQ", .{ .extends = "req" });
+}
+
 test "register rm empty node type" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
@@ -19,14 +24,15 @@ test "register rm empty node type" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
+    try registerReq(alloc, std.testing.io, repo_abs);
     try register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     const reg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "registry.json" });
     defer alloc.free(reg_sub);
     const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
     defer alloc.free(contents);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\": \"REQ\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\": \"REQ\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\":\"req\"") != null or std.mem.indexOf(u8, contents, "\"type\": \"req\"") != null);
 }
 
 test "register rm node type with instance requires force" {
@@ -40,7 +46,7 @@ test "register rm node type with instance requires force" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
+    try registerReq(alloc, std.testing.io, repo_abs);
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     try std.testing.expectError(error.TypeHasInstances, register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{}));
@@ -49,7 +55,7 @@ test "register rm node type with instance requires force" {
     defer alloc.free(reg_sub);
     const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
     defer alloc.free(contents);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\": \"REQ\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\":\"REQ\"") != null or std.mem.indexOf(u8, contents, "\"type\": \"REQ\"") != null);
 }
 
 test "register rm node type with force removes instance" {
@@ -63,7 +69,7 @@ test "register rm node type with force removes instance" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
+    try registerReq(alloc, std.testing.io, repo_abs);
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     try register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{ .force = true });
@@ -84,7 +90,7 @@ test "register rm preserve-local keeps objects" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
+    try registerReq(alloc, std.testing.io, repo_abs);
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
 
     try register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{
@@ -108,7 +114,7 @@ test "register rm preserve-local without force fails" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
+    try registerReq(alloc, std.testing.io, repo_abs);
 
     try std.testing.expectError(error.PreserveLocalRequiresForce, register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{
         .preserve_local = true,
@@ -126,9 +132,8 @@ test "register rm dangling link requires cascade" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "DOC", false);
-    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "REQ", "DOC", false);
+    try register.registerReqDocFixture(alloc, std.testing.io, repo_abs);
+    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "req", "doc", false);
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "DOC", .{});
     try new_link.run(alloc, std.testing.io, repo_abs, "implements", "REQ-1", "DOC-1");
@@ -147,9 +152,8 @@ test "register rm force cascade removes dangling link and node type" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "DOC", false);
-    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "REQ", "DOC", false);
+    try register.registerReqDocFixture(alloc, std.testing.io, repo_abs);
+    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "req", "doc", false);
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "DOC", .{});
     try new_link.run(alloc, std.testing.io, repo_abs, "implements", "REQ-1", "DOC-1");
@@ -163,7 +167,7 @@ test "register rm force cascade removes dangling link and node type" {
     defer alloc.free(reg_sub);
     const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
     defer alloc.free(contents);
-    try std.testing.expect(std.mem.indexOf(u8, contents, "\"obj_prefix\": \"REQ\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\": \"REQ\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, contents, "\"link_type\": \"implements\"") == null);
 
     const links_path = try std.fs.path.join(alloc, &.{ "repo", "relations", "links.jsonc" });
@@ -184,7 +188,7 @@ test "register rm force skips tombstoned node filesystem" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
+    try registerReq(alloc, std.testing.io, repo_abs);
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
     try remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1");
 
@@ -208,9 +212,8 @@ test "register rm link type with force" {
     defer alloc.free(repo_abs_z);
     const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
 
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "REQ", false);
-    try register.runNodeType(alloc, std.testing.io, repo_abs, "DOC", false);
-    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "REQ", "DOC", false);
+    try register.registerReqDocFixture(alloc, std.testing.io, repo_abs);
+    try register.runLinkType(alloc, std.testing.io, repo_abs, "implements", "req", "doc", false);
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "DOC", .{});
     try new_link.run(alloc, std.testing.io, repo_abs, "implements", "REQ-1", "DOC-1");
@@ -232,4 +235,35 @@ test "register rm link type with force" {
     for (loaded.rows()) |row| {
         try std.testing.expect(!std.mem.eql(u8, row.link_type, "implements"));
     }
+}
+
+test "register rm abstract with children requires force cascade" {
+    const alloc = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(std.testing.io, "repo");
+
+    const repo_abs_z = try tmp.dir.realPathFileAlloc(std.testing.io, "repo", alloc);
+    defer alloc.free(repo_abs_z);
+    const repo_abs: []const u8 = std.mem.sliceTo(repo_abs_z, 0);
+
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "req", .{ .abstract = true });
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "sys", .{ .extends = "req" });
+    try register.runNodeType(alloc, std.testing.io, repo_abs, "cus", .{ .extends = "req" });
+
+    try std.testing.expectError(error.TypeHasChildren, register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "req", .{}));
+
+    try register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "req", .{
+        .force = true,
+        .cascade = true,
+    });
+
+    const reg_sub = try std.fs.path.join(alloc, &.{ "repo", ".fits", "registry.json" });
+    defer alloc.free(reg_sub);
+    const contents = try tmp.dir.readFileAlloc(std.testing.io, reg_sub, alloc, .unlimited);
+    defer alloc.free(contents);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\": \"req\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\": \"sys\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\": \"cus\"") == null);
 }

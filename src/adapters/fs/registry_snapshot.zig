@@ -7,45 +7,58 @@ const registry_validate = @import("registry_validate.zig");
 const Io = std.Io;
 
 const SnapshotJson = struct {
-    prefixes: []PrefixJson = &.{},
+    node_types: []NodeTypeJson = &.{},
     link_types: []LinkTypeJson = &.{},
 };
 
-const PrefixJson = struct {
-    obj_prefix: []const u8,
+const NodeTypeJson = struct {
+    type: []const u8,
+    abstract: bool = false,
+    id_prefix: ?[]const u8 = null,
+    extends: ?[]const u8 = null,
 };
 
 const LinkTypeJson = struct {
     link_type: []const u8,
-    in_obj_prefix: []const u8,
-    out_obj_prefix: []const u8,
+    in_type: []const u8,
+    out_type: []const u8,
 };
 
 /// Type-only schema extracted from a registry document.
 pub const TypeSchema = struct {
-    prefixes: []const []const u8,
+    node_types: []NodeTypeEntry,
     link_types: []LinkTypeEntry,
+
+    pub const NodeTypeEntry = struct {
+        type: []const u8,
+        abstract: bool,
+        id_prefix: ?[]const u8,
+        extends: ?[]const u8,
+    };
 
     pub const LinkTypeEntry = struct {
         link_type: []const u8,
-        in_obj_prefix: []const u8,
-        out_obj_prefix: []const u8,
+        in_type: []const u8,
+        out_type: []const u8,
     };
 
     pub fn deinit(self: *TypeSchema, allocator: std.mem.Allocator) void {
-        for (self.prefixes) |p| allocator.free(p);
-        allocator.free(self.prefixes);
+        for (self.node_types) |*nt| {
+            allocator.free(nt.type);
+            if (nt.id_prefix) |p| allocator.free(p);
+            if (nt.extends) |e| allocator.free(e);
+        }
+        allocator.free(self.node_types);
         for (self.link_types) |*lt| {
             allocator.free(lt.link_type);
-            allocator.free(lt.in_obj_prefix);
-            allocator.free(lt.out_obj_prefix);
+            allocator.free(lt.in_type);
+            allocator.free(lt.out_type);
         }
         allocator.free(self.link_types);
         self.* = undefined;
     }
 };
 
-/// Loads snapshot schema from `package_root`/`snapshot_rel`.
 pub fn loadTypeSchema(
     allocator: std.mem.Allocator,
     io: Io,
@@ -78,48 +91,77 @@ pub fn loadTypeSchema(
     });
     defer parsed.deinit();
 
-    var prefixes: std.ArrayListUnmanaged([]const u8) = .empty;
+    var node_types: std.ArrayListUnmanaged(TypeSchema.NodeTypeEntry) = .empty;
     errdefer {
-        for (prefixes.items) |p| allocator.free(p);
-        prefixes.deinit(allocator);
+        for (node_types.items) |*nt| {
+            allocator.free(nt.type);
+            if (nt.id_prefix) |p| allocator.free(p);
+            if (nt.extends) |e| allocator.free(e);
+        }
+        node_types.deinit(allocator);
     }
-    for (parsed.value.prefixes) |pj| {
-        try prefixes.append(allocator, try allocator.dupe(u8, pj.obj_prefix));
+    for (parsed.value.node_types) |nj| {
+        try node_types.append(allocator, .{
+            .type = try allocator.dupe(u8, nj.type),
+            .abstract = nj.abstract,
+            .id_prefix = if (nj.id_prefix) |p| try allocator.dupe(u8, p) else null,
+            .extends = if (nj.extends) |e| try allocator.dupe(u8, e) else null,
+        });
     }
 
     var links: std.ArrayListUnmanaged(TypeSchema.LinkTypeEntry) = .empty;
     errdefer {
         for (links.items) |*lt| {
             allocator.free(lt.link_type);
-            allocator.free(lt.in_obj_prefix);
-            allocator.free(lt.out_obj_prefix);
+            allocator.free(lt.in_type);
+            allocator.free(lt.out_type);
         }
         links.deinit(allocator);
     }
     for (parsed.value.link_types) |lj| {
         try links.append(allocator, .{
             .link_type = try allocator.dupe(u8, lj.link_type),
-            .in_obj_prefix = try allocator.dupe(u8, lj.in_obj_prefix),
-            .out_obj_prefix = try allocator.dupe(u8, lj.out_obj_prefix),
+            .in_type = try allocator.dupe(u8, lj.in_type),
+            .out_type = try allocator.dupe(u8, lj.out_type),
         });
     }
 
     return .{
-        .prefixes = try prefixes.toOwnedSlice(allocator),
+        .node_types = try node_types.toOwnedSlice(allocator),
         .link_types = try links.toOwnedSlice(allocator),
     };
 }
 
-/// Verifies live registry types match the snapshot (ignores counters and tombstones).
+fn nodeTypeMatches(live: fits_registry.Registry.NodeTypeEntry, snap: TypeSchema.NodeTypeEntry) bool {
+    if (!std.mem.eql(u8, live.type, snap.type)) return false;
+    if (live.abstract != snap.abstract) return false;
+    if (live.abstract) return true;
+    const live_prefix = live.id_prefix orelse return false;
+    const snap_prefix = snap.id_prefix orelse live_prefix;
+    if (!std.mem.eql(u8, live_prefix, snap_prefix)) return false;
+    const live_ext = live.extends orelse return false;
+    const snap_ext = snap.extends orelse live_ext;
+    return std.mem.eql(u8, live_ext, snap_ext);
+}
+
 pub fn verifyRegistryMatchesSchema(reg: *const fits_registry.Registry, schema: *const TypeSchema) !void {
-    if (reg.prefixes.items.len != schema.prefixes.len) return error.RegistrySnapshotMismatch;
-    for (schema.prefixes) |sp| {
-        if (!reg.hasObjPrefix(sp)) return error.RegistrySnapshotMismatch;
-    }
-    for (reg.prefixes.items) |live| {
+    if (reg.node_types.items.len != schema.node_types.len) return error.RegistrySnapshotMismatch;
+
+    for (schema.node_types) |sn| {
         var found = false;
-        for (schema.prefixes) |sp| {
-            if (std.mem.eql(u8, live.obj_prefix, sp)) {
+        for (reg.node_types.items) |live| {
+            if (nodeTypeMatches(live, sn)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) return error.RegistrySnapshotMismatch;
+    }
+
+    for (reg.node_types.items) |live| {
+        var found = false;
+        for (schema.node_types) |sn| {
+            if (nodeTypeMatches(live, sn)) {
                 found = true;
                 break;
             }
@@ -129,10 +171,10 @@ pub fn verifyRegistryMatchesSchema(reg: *const fits_registry.Registry, schema: *
 
     if (reg.link_types.items.len != schema.link_types.len) return error.RegistrySnapshotMismatch;
     for (schema.link_types) |sl| {
-        const in_p = reg.linkTypeInPrefix(sl.link_type) orelse return error.RegistrySnapshotMismatch;
-        const out_p = reg.linkTypeOutPrefix(sl.link_type) orelse return error.RegistrySnapshotMismatch;
-        if (!std.mem.eql(u8, in_p, sl.in_obj_prefix)) return error.RegistrySnapshotMismatch;
-        if (!std.mem.eql(u8, out_p, sl.out_obj_prefix)) return error.RegistrySnapshotMismatch;
+        const in_t = reg.linkTypeInType(sl.link_type) orelse return error.RegistrySnapshotMismatch;
+        const out_t = reg.linkTypeOutType(sl.link_type) orelse return error.RegistrySnapshotMismatch;
+        if (!std.mem.eql(u8, in_t, sl.in_type)) return error.RegistrySnapshotMismatch;
+        if (!std.mem.eql(u8, out_t, sl.out_type)) return error.RegistrySnapshotMismatch;
     }
     for (reg.link_types.items) |live| {
         var found = false;
@@ -146,7 +188,6 @@ pub fn verifyRegistryMatchesSchema(reg: *const fits_registry.Registry, schema: *
     }
 }
 
-/// Loads schema and verifies `reg` in one step.
 pub fn verifyRegistryForPersona(
     allocator: std.mem.Allocator,
     io: Io,
@@ -159,12 +200,22 @@ pub fn verifyRegistryForPersona(
     try verifyRegistryMatchesSchema(reg, &schema);
 }
 
-/// Returns true when `obj_prefix` is declared in the snapshot schema.
-pub fn schemaHasObjPrefix(schema: *const TypeSchema, obj_prefix: []const u8) bool {
-    for (schema.prefixes) |p| {
-        if (std.mem.eql(u8, p, obj_prefix)) return true;
+/// Returns true when `id_prefix` is a concrete type id prefix declared in the snapshot.
+pub fn schemaHasIdPrefix(schema: *const TypeSchema, id_prefix: []const u8) bool {
+    for (schema.node_types) |nt| {
+        if (nt.abstract) continue;
+        if (nt.id_prefix) |p| {
+            if (std.mem.eql(u8, p, id_prefix)) return true;
+        } else if (std.mem.eql(u8, nt.type, id_prefix)) {
+            return true;
+        }
     }
     return false;
+}
+
+/// Deprecated; use [`schemaHasIdPrefix`].
+pub fn schemaHasObjPrefix(schema: *const TypeSchema, id_prefix: []const u8) bool {
+    return schemaHasIdPrefix(schema, id_prefix);
 }
 
 fn openFile(io: Io, path: []const u8) !Io.File {
