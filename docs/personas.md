@@ -106,7 +106,7 @@ Common persona allow lists omit `init`, `register`, and `update`.
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `hooks_default` | `true` | Run persona hooks on `validate` without `--hooks` |
+| `hooks_default` | `true` | Run persona hooks on `validate` |
 | `include_link_endpoints` | `true` | Run built-in link endpoint validator |
 
 ### `[[validate.hook]]`

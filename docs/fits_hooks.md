@@ -21,7 +21,7 @@ max_request_bytes = 33554432
 timeout_secs = 120
 ```
 
-- **`enabled`:** Hooks run only if this is `true` **and** you pass **`--hooks`** on the CLI.
+- **`enabled`:** When `true`, hooks run on every `fits validate` (no separate CLI flag).
 - **`nodes_command` / `links_command`:** JSON-array lines (same format as JSON array literals): full argv; first element is the executable.
 - **`objects_command`:** Alias for **`nodes_command`** when `nodes_command` is omitted (same argv semantics).
 - **`max_request_bytes`:** Rejects oversized request bodies before spawning (default 32 MiB).
@@ -30,18 +30,17 @@ timeout_secs = 120
 ## CLI
 
 ```sh
-fits validate --hooks
-fits validate --hooks --hooks-full
-fits validate --hooks --no-hooks-incremental
+fits validate
+fits validate --hooks-full
+fits validate --no-hooks-incremental
 ```
 
-- **`--hooks`:** Allow hooks to run when configured and enabled.
 - **`--hooks-full`:** Ignore incremental optimization: every graph object row relevant to hooks is considered for hook payloads (still subject to `max_request_bytes`).
 - **`--no-hooks-incremental`:** Disable fingerprint-based skipping (same as a full refresh for the cache).
 
 ## Incremental behavior
 
-When incremental mode is on (`--hooks` without `--hooks-full` or `--no-hooks-incremental`):
+When incremental mode is on (default `fits validate`, without `--hooks-full` or `--no-hooks-incremental`):
 
 1. **Fingerprints** (Wyhash over canonical node bundle bytes and link row fields) are stored in the LatticeDB cache under keys `hooks:node:<argv-hash>:<id>` and `hooks:link:...`. If the fingerprint matches the last successful run for that id, the entity is skipped for that hook.
 2. **Git narrowing** (when `.git` exists and `git diff HEAD --name-only` succeeds): only paths that appear in the diff are eligible. Node ids are taken from path segments under `nodes/…` that match `{ID_PREFIX}-{n}`; link rows are filtered when `links/links.jsonc` changes or paths under `links/<link-type>/<link-id>/` change. If git is missing or the command fails, hooks fall back to fingerprint-only narrowing.

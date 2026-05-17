@@ -189,14 +189,9 @@ fn runValidate(
     environ: *const std.process.Environ.Map,
     args: anytype,
 ) !void {
-    var cli_hooks = false;
     var hooks_full = false;
     var hooks_incremental = true;
     while (args.next()) |a| {
-        if (std.mem.eql(u8, a, "--hooks")) {
-            cli_hooks = true;
-            continue;
-        }
         if (std.mem.eql(u8, a, "--hooks-full")) {
             hooks_full = true;
             continue;
@@ -283,11 +278,9 @@ fn runValidate(
     var hook_cfg = hooks_config_mod.HooksConfig{};
     defer hook_cfg.deinit(allocator);
 
-    var run_hooks = cli_hooks;
     if (resolved.manifest) |m| {
-        if (m.validate_hooks_default and m.primaryHook() != null) run_hooks = true;
         if (m.primaryHook()) |hook_def| {
-            hook_cfg.enabled = true;
+            hook_cfg.enabled = m.validate_hooks_default;
             hook_cfg.nodes_argv = try extension_run.resolveHookArgv(allocator, io, resolved.package_root, hook_def.nodes_argv);
             hook_cfg.links_argv = try extension_run.resolveHookArgv(allocator, io, resolved.package_root, hook_def.links_argv);
             hook_cfg.timeout_ns = hook_def.timeout_secs * std.time.ns_per_s;
@@ -312,7 +305,6 @@ fn runValidate(
         &hook_snapshot,
         &cache,
         &hook_cfg,
-        run_hooks,
         hooks_full,
         hooks_incremental,
         run_id,
@@ -754,7 +746,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
         std.debug.print(
             \\Usage:
             \\  {s} init
-            \\  {s} validate [--hooks] [--hooks-full] [--no-hooks-incremental]
+            \\  {s} validate [--hooks-full] [--no-hooks-incremental]
             \\  {s} new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
             \\  {s} new link <LINK_TYPE> <IN_ID> <OUT_ID>
             \\  {s} register node-type <NODE_PREFIX> [--create-folder]

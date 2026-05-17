@@ -27,7 +27,7 @@ Invoke `fits` with a subcommand. If you omit the subcommand or pass an unknown o
 ```text
 Usage:
   fits init
-  fits validate [--hooks] [--hooks-full] [--no-hooks-incremental]
+  fits validate [--hooks-full] [--no-hooks-incremental]
   fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
   fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
   fits rm <NODE_ID or LINK_ID>
@@ -53,13 +53,12 @@ fits init
 
 Runs the validation pipeline on **node** bundles under `nodes/` and on **`links/links.jsonc`** (if present). Structural or semantic problems in the links file are printed with JSON-pointer paths before exit. Output also includes a summary line for other validators.
 
-Optional **JSON subprocess hooks** (stdin/stdout) run after the built-in validators when you pass **`--hooks`** and configure `.fits/hooks.toml` with `enabled = true`. See [docs/fits_hooks.md](docs/fits_hooks.md) for the protocol, incremental cache, and flags (`--hooks-full`, `--no-hooks-incremental`).
+Optional **JSON subprocess hooks** (stdin/stdout) run after the built-in validators when `.fits/hooks.toml` has `enabled = true` (or when a persona defines validate hooks with `hooks_default = true`). See [docs/fits_hooks.md](docs/fits_hooks.md) for the protocol, incremental cache, and flags (`--hooks-full`, `--no-hooks-incremental`).
 
 See [docs/fits_links.md](docs/fits_links.md) for the links file and graph edge rules.
 
 ```sh
 fits validate
-fits validate --hooks
 ```
 
 ### `fits register`

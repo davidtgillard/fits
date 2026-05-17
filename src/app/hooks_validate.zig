@@ -26,7 +26,6 @@ pub fn runHooks(
     full_snapshot: *const graph.GraphSnapshot,
     cache: *lattice.LatticeDbCache,
     cfg: *const hooks_config.HooksConfig,
-    cli_hooks: bool,
     hooks_full: bool,
     hooks_incremental: bool,
     run_id: []const u8,
@@ -38,7 +37,7 @@ pub fn runHooks(
         out.deinit(allocator);
     }
 
-    if (!cli_hooks or !cfg.enabled) {
+    if (!cfg.enabled) {
         return try out.toOwnedSlice(allocator);
     }
 
