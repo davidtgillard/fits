@@ -23,7 +23,7 @@ test "new link appends row and advances counter" {
 
     try new_link.run(alloc, std.testing.io, repo_abs, "refs", "REQ-1", "BUG-1");
 
-    const links_sub = try std.fs.path.join(alloc, &.{ "repo", "relations", "links.jsonc" });
+    const links_sub = try std.fs.path.join(alloc, &.{ "repo", "links", "links.jsonc" });
     defer alloc.free(links_sub);
     const links_text = try tmp.dir.readFileAlloc(std.testing.io, links_sub, alloc, .unlimited);
     defer alloc.free(links_text);

@@ -1,6 +1,6 @@
 //! Pure domain types for node snapshots and an immutable graph view.
-//! In fits vocabulary, a **graph object** is either a **node** (versioned dataset instance under `objects/`)
-//! or a **link** (edge instance from `relations/links.jsonc`). This module models nodes and their incident graph shape only.
+//! In fits vocabulary, a **graph object** is either a **node** (versioned dataset instance under type-scoped `nodes/…`)
+//! or a **link** (edge instance from `links/links.jsonc`). This module models nodes and their incident graph shape only.
 //! No filesystem or I/O: adapters build these values from disk.
 
 const std = @import("std");
@@ -38,7 +38,7 @@ pub const LinkEdgeInput = struct {
 pub const EdgeKind = enum {
     /// Target node is referenced by or depended on by the source (legacy placeholder).
     references,
-    /// Registered link type from [`relations/links.jsonc`]; see [`GraphEdge.link_type`].
+    /// Registered link type from [`links/links.jsonc`]; see [`GraphEdge.link_type`].
     registered_link,
 };
 

@@ -9,7 +9,7 @@ test "relations links.jsonc with line comment passes structural validation" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.createDirPath(std.testing.io, "repo/relations");
+    try tmp.dir.createDirPath(std.testing.io, "repo/links");
 
     const body = try std.fmt.allocPrint(alloc,
         \\{{
@@ -22,7 +22,7 @@ test "relations links.jsonc with line comment passes structural validation" {
     , .{ links_validate.links_description, links_validate.links_kind });
     defer alloc.free(body);
 
-    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "repo/relations/links.jsonc", .data = body });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "repo/links/links.jsonc", .data = body });
 
     const repo_abs_z = try tmp.dir.realPathFileAlloc(std.testing.io, "repo", alloc);
     defer alloc.free(repo_abs_z);

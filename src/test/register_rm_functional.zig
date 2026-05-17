@@ -74,7 +74,7 @@ test "register rm node type with force removes instance" {
 
     try register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{ .force = true });
 
-    const obj_path = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-1" });
+    const obj_path = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "REQ", "REQ-1" });
     defer alloc.free(obj_path);
     try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(std.testing.io, obj_path, .{}));
 }
@@ -98,7 +98,7 @@ test "register rm preserve-local keeps objects" {
         .preserve_local = true,
     });
 
-    const obj_path = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-1" });
+    const obj_path = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "REQ", "REQ-1" });
     defer alloc.free(obj_path);
     _ = try tmp.dir.statFile(std.testing.io, obj_path, .{});
 }
@@ -170,7 +170,7 @@ test "register rm force cascade removes dangling link and node type" {
     try std.testing.expect(std.mem.indexOf(u8, contents, "\"type\": \"REQ\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, contents, "\"link_type\": \"implements\"") == null);
 
-    const links_path = try std.fs.path.join(alloc, &.{ "repo", "relations", "links.jsonc" });
+    const links_path = try std.fs.path.join(alloc, &.{ "repo", "links", "links.jsonc" });
     defer alloc.free(links_path);
     const links_text = try tmp.dir.readFileAlloc(std.testing.io, links_path, alloc, .unlimited);
     defer alloc.free(links_text);
@@ -192,9 +192,10 @@ test "register rm force skips tombstoned node filesystem" {
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
     try remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1");
 
-    const stray_path = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-1" });
+    const stray_path = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "REQ", "REQ-1" });
     defer alloc.free(stray_path);
-    try tmp.dir.createDirPath(std.testing.io, "repo/objects/REQ-1");
+    try tmp.dir.createDirPath(std.testing.io, "repo/nodes/req/REQ");
+    try tmp.dir.createDirPath(std.testing.io, "repo/nodes/req/REQ/REQ-1");
 
     try register_rm.runRemoveType(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{ .force = true });
 

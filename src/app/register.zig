@@ -5,6 +5,7 @@ const std = @import("std");
 const fits_config = @import("../adapters/fs/fits_config.zig");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
+const path_layout = @import("../adapters/fs/path_layout.zig");
 const new_node = @import("new_node.zig");
 
 /// Default repository root when the CLI is run from the project tree.
@@ -46,7 +47,6 @@ pub fn runNodeType(
 ) !void {
     try fits_registry.validateTypeName(type_name);
     if (opts.abstract and opts.extends != null) return error.AbstractRequiresNoExtends;
-    if (!opts.abstract and opts.extends == null) return error.ExtendsRequired;
 
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
@@ -55,9 +55,11 @@ pub fn runNodeType(
         try reg.registerAbstractType(type_name);
     } else {
         try fits_registry.validateTypeName(opts.extends.?);
-        try reg.registerConcreteType(type_name, opts.extends.?, null);
+        try reg.registerConcreteType(type_name, opts.extends, null);
     }
     try reg.save(io, repo_root);
+
+    try ensureNodeTypeDir(io, repo_root, &reg, type_name);
 
     if (opts.create_folder and !opts.abstract) {
         const id_prefix = reg.idPrefixForType(type_name) orelse return error.UnknownNodeType;
@@ -118,6 +120,8 @@ pub fn runLinkType(
 
     try reg.registerNewLinkType(link_type, in_type, out_type);
     try reg.save(io, repo_root);
+
+    try ensureLinkTypeDir(io, repo_root, link_type);
 
     if (create_folder) {
         try fits_config.mergeRepoLinkTypeCreateFolder(allocator, io, repo_root, link_type, true);
@@ -242,6 +246,7 @@ pub fn runRenameType(
     old_name: []const u8,
     new_name: []const u8,
 ) !void {
+    _ = objects_rel;
     try fits_registry.validateTypeName(old_name);
     try fits_registry.validateTypeName(new_name);
 
@@ -258,14 +263,20 @@ pub fn runRenameType(
         defer if (old_id_prefix_owned) |p| allocator.free(p);
         const old_next = if (!entry.abstract) entry.next else 0;
 
+        if (old_id_prefix_owned) |prefix| {
+            if (std.mem.eql(u8, prefix, old_name)) {
+                const new_prefix = new_name;
+                try renameManagedInstances(allocator, io, repo_root, entry, new_name, prefix, new_prefix, old_next);
+            }
+        }
+
+        try renameNodeTypeDir(allocator, io, repo_root, entry, new_name);
         try reg.renameNodeType(old_name, new_name);
         try reg.save(io, repo_root);
 
         if (old_id_prefix_owned) |prefix| {
             if (std.mem.eql(u8, prefix, old_name)) {
-                const new_prefix = reg.idPrefixForType(new_name) orelse return error.UnknownNodeType;
-                try renameManagedInstances(allocator, io, repo_root, objects_rel, prefix, new_prefix, old_next);
-                try fits_config.renameRepoObjTypeCreateFolderKey(allocator, io, repo_root, prefix, new_prefix);
+                try fits_config.renameRepoObjTypeCreateFolderKey(allocator, io, repo_root, prefix, new_name);
             }
         }
         if (!builtin.is_test) std.debug.print("Renamed node type {s} -> {s}\n", .{ old_name, new_name });
@@ -273,6 +284,7 @@ pub fn runRenameType(
     }
 
     if (reg.hasLinkType(old_name)) {
+        try renameLinkTypeDir(allocator, io, repo_root, old_name, new_name);
         try links_index.rewriteLinkTypeRows(allocator, io, repo_root, old_name, new_name);
         try reg.renameLinkType(old_name, new_name);
         try fits_config.renameRepoLinkTypeCreateFolderKey(allocator, io, repo_root, old_name, new_name);
@@ -289,17 +301,87 @@ const RenamePair = struct {
     to_basename: []const u8,
 };
 
+fn ensureNodeTypeDir(io: std.Io, repo_root: []const u8, reg: *const fits_registry.Registry, type_name: []const u8) !void {
+    const rel = try path_layout.nodeTypeDir(std.heap.page_allocator, reg, type_name);
+    defer std.heap.page_allocator.free(rel);
+    const abs = try std.fs.path.join(std.heap.page_allocator, &.{ repo_root, rel });
+    defer std.heap.page_allocator.free(abs);
+    try std.Io.Dir.cwd().createDirPath(io, abs);
+}
+
+fn ensureLinkTypeDir(io: std.Io, repo_root: []const u8, link_type: []const u8) !void {
+    const rel = try path_layout.linkTypeDir(std.heap.page_allocator, link_type);
+    defer std.heap.page_allocator.free(rel);
+    const abs = try std.fs.path.join(std.heap.page_allocator, &.{ repo_root, rel });
+    defer std.heap.page_allocator.free(abs);
+    try std.Io.Dir.cwd().createDirPath(io, abs);
+}
+
+fn renameNodeTypeDir(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+    entry: fits_registry.Registry.NodeTypeEntry,
+    new_name: []const u8,
+) !void {
+    const old_rel = try path_layout.nodeTypeDirFromFields(allocator, entry.type, entry.abstract, entry.extends);
+    defer allocator.free(old_rel);
+    const new_rel = try path_layout.nodeTypeDirFromFields(allocator, new_name, entry.abstract, entry.extends);
+    defer allocator.free(new_rel);
+    if (std.mem.eql(u8, old_rel, new_rel)) return;
+
+    const cwd = std.Io.Dir.cwd();
+    const old_abs = try std.fs.path.join(allocator, &.{ repo_root, old_rel });
+    defer allocator.free(old_abs);
+    const new_abs = try std.fs.path.join(allocator, &.{ repo_root, new_rel });
+    defer allocator.free(new_abs);
+
+    cwd.rename(old_abs, cwd, new_abs, io) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    };
+}
+
+fn renameLinkTypeDir(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+    old_link_type: []const u8,
+    new_link_type: []const u8,
+) !void {
+    const old_rel = try path_layout.linkTypeDir(allocator, old_link_type);
+    defer allocator.free(old_rel);
+    const new_rel = try path_layout.linkTypeDir(allocator, new_link_type);
+    defer allocator.free(new_rel);
+    if (std.mem.eql(u8, old_rel, new_rel)) return;
+
+    const cwd = std.Io.Dir.cwd();
+    const old_abs = try std.fs.path.join(allocator, &.{ repo_root, old_rel });
+    defer allocator.free(old_abs);
+    const new_abs = try std.fs.path.join(allocator, &.{ repo_root, new_rel });
+    defer allocator.free(new_abs);
+
+    cwd.rename(old_abs, cwd, new_abs, io) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    };
+}
+
 fn renameManagedInstances(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
-    objects_rel: []const u8,
+    entry: fits_registry.Registry.NodeTypeEntry,
+    new_type_name: []const u8,
     old_prefix: []const u8,
     new_prefix: []const u8,
     old_next: u64,
 ) !void {
     const cwd = std.Io.Dir.cwd();
-    const objects_path = try std.fs.path.join(allocator, &.{ repo_root, objects_rel });
+    const old_parent_rel = try path_layout.nodeTypeDirFromFields(allocator, entry.type, entry.abstract, entry.extends);
+    defer allocator.free(old_parent_rel);
+    _ = new_type_name;
+    const objects_path = try std.fs.path.join(allocator, &.{ repo_root, old_parent_rel });
     defer allocator.free(objects_path);
 
     var dir = cwd.openDir(io, objects_path, .{ .iterate = true }) catch |err| switch (err) {
@@ -318,9 +400,9 @@ fn renameManagedInstances(
     }
 
     var iter = dir.iterate();
-    while (try iter.next(io)) |entry| {
-        if (entry.kind == .sym_link) continue;
-        const basename = entry.name;
+    while (try iter.next(io)) |dir_entry| {
+        if (dir_entry.kind == .sym_link) continue;
+        const basename = dir_entry.name;
 
         const parsed_n = parseInstanceNumeric(old_prefix, basename);
         if (parsed_n == null) continue;
@@ -329,7 +411,7 @@ fn renameManagedInstances(
         if (n == 0 or n >= old_next) {
             if (!builtin.is_test) {
                 std.debug.print("warning: skipping {s}/{s} (not in registry-issued range for {s})\n", .{
-                    objects_rel, basename, old_prefix,
+                    old_parent_rel, basename, old_prefix,
                 });
             }
             continue;
@@ -349,7 +431,7 @@ fn renameManagedInstances(
         defer allocator.free(to_path);
 
         if (pathExists(cwd, io, to_path)) {
-            std.debug.print("error: rename target already exists: {s}/{s}\n", .{ objects_rel, pair.to_basename });
+            std.debug.print("error: rename target already exists: {s}/{s}\n", .{ old_parent_rel, pair.to_basename });
             return error.RenameTargetExists;
         }
     }
@@ -369,7 +451,7 @@ fn renameManagedInstances(
         try cwd.rename(from_path, cwd, to_path, io);
         if (!builtin.is_test) {
             std.debug.print("Renamed {s}/{s} -> {s}/{s}\n", .{
-                objects_rel, pair.from_basename, objects_rel, pair.to_basename,
+                old_parent_rel, pair.from_basename, old_parent_rel, pair.to_basename,
             });
         }
     }

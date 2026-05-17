@@ -1,4 +1,4 @@
-//! CLI use-case: append one validated link row to `relations/links.jsonc` and advance the link-type counter in `.fits/registry.json`.
+//! CLI use-case: append one validated link row to `links/links.jsonc` and advance the link-type counter in `.fits/registry.json`.
 //! Endpoint ids must match the registered `in_type` and `out_type` for the given link type (`OUT` → `IN` in storage).
 
 const builtin = @import("builtin");
@@ -9,6 +9,7 @@ const instance_id = @import("../domain/instance_id.zig");
 const node_type = @import("../domain/node_type.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
 const links_validate = @import("../adapters/fs/links_validate.zig");
+const path_layout = @import("../adapters/fs/path_layout.zig");
 
 /// Default repository root when the CLI is run from the project tree.
 pub const default_repo_root: []const u8 = ".";
@@ -110,7 +111,9 @@ pub fn run(
         if (prefs.linkCreateFolder(link_type)) |want| {
             if (want) {
                 const cwd = std.Io.Dir.cwd();
-                const rel_dir = try std.fs.path.join(allocator, &.{ repo_root, links_index.relations_dir_name, new_id });
+                const rel_dir_rel = try path_layout.linkInstanceDir(allocator, link_type, new_id);
+                defer allocator.free(rel_dir_rel);
+                const rel_dir = try std.fs.path.join(allocator, &.{ repo_root, rel_dir_rel });
                 defer allocator.free(rel_dir);
                 try cwd.createDirPath(io, rel_dir);
             }

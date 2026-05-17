@@ -77,10 +77,27 @@
         }
       }
     },
+    "nodeTypeConcreteStandalone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "next"],
+      "properties": {
+        "type": { "$ref": "#/$defs/typeName" },
+        "abstract": { "const": false },
+        "id_prefix": { "$ref": "#/$defs/typeName" },
+        "next": { "$ref": "#/$defs/nextCounter" },
+        "tombstones": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tombstone" },
+          "default": []
+        }
+      }
+    },
     "nodeType": {
       "oneOf": [
         { "$ref": "#/$defs/nodeTypeAbstract" },
-        { "$ref": "#/$defs/nodeTypeConcrete" }
+        { "$ref": "#/$defs/nodeTypeConcrete" },
+        { "$ref": "#/$defs/nodeTypeConcreteStandalone" }
       ]
     },
     "linkType": {

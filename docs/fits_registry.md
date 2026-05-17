@@ -41,7 +41,19 @@ Example envelope:
 
 ## Node types
 
-Node types are either **abstract** (uninstantiable, no `objects/` allocation) or **concrete** (instantiable via `{id_prefix}-{n}`).
+Node types are either **abstract** (uninstantiable, scaffolding only under `nodes/<type>/`) or **concrete** (instantiable via `{id_prefix}-{n}` under a type-scoped folder in `nodes/`).
+
+## Repository layout (`nodes/`)
+
+Type scaffolding and instances use the registry **`type`** name (not necessarily the id prefix):
+
+| Kind | Folder |
+|------|--------|
+| Abstract `req` | `nodes/req/` |
+| Concrete `sys` extending `req` | `nodes/req/sys/` (instances: `nodes/req/sys/SYS-1/`, etc.) |
+| Standalone concrete `sw` | `nodes/sw/` |
+
+`fits register node-type` creates the scaffolding directory. `fits new node` writes instances at the concrete type’s leaf folder.
 
 ### Abstract entry
 
@@ -70,7 +82,7 @@ Register with: `fits register node-type req --abstract`
 ```
 
 - `type`: registry name for this concrete type (must be unique among all `type`, `id_prefix`, and `link_type` names).
-- `extends`: required; must name an **abstract** parent (concrete cannot extend concrete).
+- `extends`: optional; when present, must name an **abstract** parent (concrete cannot extend concrete). Omit for a standalone concrete type (`nodes/<type>/` only).
 - `id_prefix`: optional; defaults to `type` when omitted. Used in instance ids (`sys-1`) and for `fits new node <ID_PREFIX>`.
 - `next`: next numeric suffix to allocate (integer ≥ 1). Issued ids are `1 .. next-1`.
 - `tombstones`: optional (may be omitted; treated as empty). Same shape as link type tombstones.
@@ -113,8 +125,8 @@ Register with: `fits register link-type traces req DOC` (type names, not id pref
 
 ### `fits register rename-type`
 
-- **Abstract** rename: updates the abstract `type`, rewrites `extends` on all concrete children, and rewrites `in_type` / `out_type` on link types that referenced the old name. No `objects/` renames.
-- **Concrete** rename: updates the registry `type` and link endpoint type strings. When `id_prefix` equals the old `type`, `id_prefix` and filesystem basenames under `objects/` are renamed together; when `id_prefix` differs from `type`, only registry and link endpoint strings change (files keep their existing ids).
+- **Abstract** rename: updates the abstract `type`, rewrites `extends` on all concrete children, and rewrites `in_type` / `out_type` on link types that referenced the old name. Renames the `nodes/<old>/` tree to `nodes/<new>/`.
+- **Concrete** rename: updates the registry `type` and link endpoint type strings. When `id_prefix` equals the old `type`, `id_prefix` and instance basenames under the type folder are renamed together; when `id_prefix` differs from `type`, only registry and link endpoint strings change (files keep their existing ids). Renames the concrete type’s leaf folder under `nodes/`.
 
 ### `fits register rm`
 

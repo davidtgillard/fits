@@ -242,7 +242,7 @@ fn runValidate(
     const id_prefixes = try reg.idPrefixSlice(allocator);
     defer allocator.free(id_prefixes);
 
-    const bundles = try loader.loadNodeBundles(allocator, io, ".", "objects", id_prefixes);
+    const bundles = try loader.loadNodeBundles(allocator, io, ".", new_node_mod.default_objects_dir, &reg, id_prefixes);
     defer allocator.free(bundles);
 
     var hook_snapshot_builder = graph_builder_mod.DeterministicGraphBuilder{};

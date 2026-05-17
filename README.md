@@ -1,6 +1,6 @@
 # `fits`
 
-`fits` is a Zig command-line tool for working with versioned, folder-based dataset **nodes** (file-backed instances under `objects/`). In fits terminology, a **graph object** is either a **node** or a **link** (see [`docs/fits_links.md`](docs/fits_links.md)). This README only covers how to build the binary and use the CLI today.
+`fits` is a Zig command-line tool for working with versioned, folder-based dataset **nodes** (instances under type-scoped `nodes/`). In fits terminology, a **graph object** is either a **node** or a **link** (see [`docs/fits_links.md`](docs/fits_links.md)). This README only covers how to build the binary and use the CLI today.
 
 ## Prerequisites
 
@@ -43,7 +43,7 @@ Usage:
 
 ### `fits init`
 
-Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty `node_types` and `link_types`), `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/latticedb/`, and `relations/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `relations/links.jsonc` already exists, the command prints an error and exits without changing files.
+Creates the standard **fits-managed layout** under the current directory: `.fits/registry.json` (empty `node_types` and `link_types`), `.fits/fits_config.toml` (default `update_check_time_period` only), `.fits/latticedb/`, and `links/links.jsonc` (empty `links` array). **Strict:** if `.fits/registry.json` or `links/links.jsonc` already exists, the command prints an error and exits without changing files.
 
 ```sh
 fits init
@@ -51,7 +51,7 @@ fits init
 
 ### `fits validate`
 
-Runs the validation pipeline on **node** bundles under `objects/` and on **`relations/links.jsonc`** (if present). Structural or semantic problems in the links file are printed with JSON-pointer paths before exit. Output also includes a summary line for other validators.
+Runs the validation pipeline on **node** bundles under `nodes/` and on **`links/links.jsonc`** (if present). Structural or semantic problems in the links file are printed with JSON-pointer paths before exit. Output also includes a summary line for other validators.
 
 Optional **JSON subprocess hooks** (stdin/stdout) run after the built-in validators when you pass **`--hooks`** and configure `.fits/hooks.toml` with `enabled = true`. See [docs/fits_hooks.md](docs/fits_hooks.md) for the protocol, incremental cache, and flags (`--hooks-full`, `--no-hooks-incremental`).
 
@@ -64,16 +64,16 @@ fits validate --hooks
 
 ### `fits register`
 
-Manages **node types** (abstract and concrete) and **link types** in `.fits/registry.json`. Concrete node types must be registered before `fits new node`; link types must be registered before `fits new link` or before you add matching rows to `relations/links.jsonc` by hand.
+Manages **node types** (abstract and concrete) and **link types** in `.fits/registry.json`. Concrete node types must be registered before `fits new node`; link types must be registered before `fits new link` or before you add matching rows to `links/links.jsonc` by hand.
 
-The registry format is defined by [`schemas/registry.schema.json`](schemas/registry.schema.json). **Do not edit `.fits/registry.json` by hand.** Field-level detail: [`docs/fits_registry.md`](docs/fits_registry.md). Directed links and `relations/links.jsonc`: [`docs/fits_links.md`](docs/fits_links.md).
+The registry format is defined by [`schemas/registry.schema.json`](schemas/registry.schema.json). **Do not edit `.fits/registry.json` by hand.** Field-level detail: [`docs/fits_registry.md`](docs/fits_registry.md). Directed links and `links/links.jsonc`: [`docs/fits_links.md`](docs/fits_links.md).
 
 #### `fits register node-type <TYPE> [--abstract | --extends <ABSTRACT>] [--create-folder]`
 
 Registers a node type in the registry:
 
-- **`--abstract`**: uninstantiable type (no `objects/` allocation, no counter). Mutually exclusive with `--extends`.
-- **`--extends <ABSTRACT>`**: concrete type that extends an existing **abstract** parent. Required for non-abstract registration.
+- **`--abstract`**: uninstantiable type (no instance allocation, no counter). Mutually exclusive with `--extends`.
+- **`--extends <ABSTRACT>`**: concrete type that extends an existing **abstract** parent. Omit for a standalone concrete type (folder at `nodes/<type>/`).
 - **`--create-folder`**: for concrete types only; sets `create_folder = true` under `[obj_types.<ID_PREFIX>]` in `.fits/fits_config.toml`.
 
 ```sh
@@ -103,7 +103,7 @@ fits register list node-types
 
 #### `fits register rename-type <OLD> <NEW>`
 
-Renames a **node type** (abstract or concrete; renames issued instances under `objects/` when the concrete `id_prefix` matches the old type name) or a **link** type (rewrites `relations/links.jsonc` and optional `relations/<id>/` directories). The name must exist in the registry as exactly one of those kinds.
+Renames a **node type** (abstract or concrete; renames issued instances under the type’s `nodes/…` folder when the concrete `id_prefix` matches the old type name) or a **link** type (rewrites `links/links.jsonc` and optional `links/<link-type>/<id>/` directories). The name must exist in the registry as exactly one of those kinds.
 
 ```sh
 fits register rename-type REQ FOO
@@ -111,10 +111,10 @@ fits register rename-type REQ FOO
 
 #### `fits register rm <TYPE> [--force] [--preserve-local] [--cascade]`
 
-Unregisters a **node type** (abstract or concrete) or **link** type. Without `--force`, the command fails if any live instances exist in the registry or on disk (`objects/` for concrete nodes; `relations/links.jsonc` and `relations/<id>/` for links). Abstract types cannot be removed while concrete children or referencing link types exist unless **`--force --cascade`**.
+Unregisters a **node type** (abstract or concrete) or **link** type. Without `--force`, the command fails if any live instances exist in the registry or on disk (under `nodes/…` for concrete nodes; `links/links.jsonc` and `links/<link-type>/<id>/` for links). Abstract types cannot be removed while concrete children or referencing link types exist unless **`--force --cascade`**.
 
 - **`--force`**: remove non-tombstoned instances, then drop the type from `.fits/registry.json` and optional config keys.
-- **`--preserve-local`**: with `--force`, update the registry and link index but leave files under `objects/` and `relations/` on disk.
+- **`--preserve-local`**: with `--force`, update the registry and link index but leave files under `nodes/` and `links/` on disk.
 - **`--cascade`**: with `--force` on a **node type**, also remove dangling link rows, unregister link types that reference the type (or its id prefixes), and for **abstract** types remove all concrete children first. Required when `--force` would otherwise leave dangling links or child types.
 
 Tombstoned numeric ids are never deleted from disk, regardless of flags.
@@ -136,13 +136,13 @@ fits register rm implements --force
 
 #### `fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]`
 
-Creates a new **node** under `objects/` using the registry. Each node gets an id of the form `{ID_PREFIX}-{n}`, where `n` is a monotonically increasing counter for that concrete type’s id prefix (ids are not reused after tombstoning). The id prefix must belong to a **concrete** registered type.
+Creates a new **node** under the concrete type’s folder in `nodes/` (e.g. `nodes/req/REQ/REQ-1/`). Each node gets an id of the form `{ID_PREFIX}-{n}`, where `n` is a monotonically increasing counter for that concrete type’s id prefix (ids are not reused after tombstoning). The id prefix must belong to a **concrete** registered type.
 
 - **Layout vs config:** When `--markdown` is not passed, `fits` reads `.fits/fits_config.toml` for `[obj_types.<PREFIX>] create_folder`. If the key is **missing**, behavior matches older releases: an **empty directory** node. If `create_folder = false`, a **Markdown file** is created instead; if `true`, a **directory** is created. `--markdown` always forces a Markdown file.
 - **`--markdown`**: Force a Markdown file in the new node path.
 - **`--`**: End of flags; everything after it is **title words**, joined with spaces for a human-readable display name suffix.
 
-**Links:** `fits new link <LINK_TYPE> <IN_ID> <OUT_ID>` appends one row to `relations/links.jsonc` with the next issued link id (`{LINK_TYPE}-{n}`). Endpoint node ids must match the registered **in** / **out** types for that link type (abstract endpoints accept any concrete type extending that abstract). The stored edge is `{out: OUT_ID, in: IN_ID}`. Both node ids must be issued and not tombstoned. See [`docs/fits_links.md`](docs/fits_links.md).
+**Links:** `fits new link <LINK_TYPE> <IN_ID> <OUT_ID>` appends one row to `links/links.jsonc` with the next issued link id (`{LINK_TYPE}-{n}`). Endpoint node ids must match the registered **in** / **out** types for that link type (abstract endpoints accept any concrete type extending that abstract). The stored edge is `{out: OUT_ID, in: IN_ID}`. Both node ids must be issued and not tombstoned. See [`docs/fits_links.md`](docs/fits_links.md).
 
 Examples:
 
@@ -163,11 +163,11 @@ fits new link implements DOC-1 REQ-1
 
 ### `fits rm`
 
-Removes a graph **object** (a **node** under `objects/` or a **link** row) by id (e.g. `REQ-3` or `implements-1`). The CLI disambiguates using the registry: concrete id prefixes are checked first, then link types.
+Removes a graph **object** (a **node** under `nodes/…` or a **link** row) by id (e.g. `REQ-3` or `implements-1`). The CLI disambiguates using the registry: concrete id prefixes are checked first, then link types.
 
-**Nodes:** matching paths under `objects/` with that numeric suffix are removed.
+**Nodes:** matching instance paths under the type’s `nodes/…` folder are removed.
 
-**Links:** the row is removed from `relations/links.jsonc`; the link numeric id is tombstoned; optional `relations/<link-id>/` is deleted.
+**Links:** the row is removed from `links/links.jsonc`; the link numeric id is tombstoned; optional `links/<link-type>/<link-id>/` is deleted.
 
 The numeric id is **tombstoned** in `.fits/registry.json` so it cannot be reissued. Tombstones use VCS-specific reference fields when removal is recorded in version control:
 

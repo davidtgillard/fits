@@ -25,11 +25,11 @@ test "register rename renames managed instance and updates registry" {
 
     try register.runRename(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", "FOO");
 
-    const old_path = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-1" });
+    const old_path = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "REQ", "REQ-1" });
     defer alloc.free(old_path);
     try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(std.testing.io, old_path, .{}));
 
-    const new_path = try std.fs.path.join(alloc, &.{ "repo", "objects", "FOO-1" });
+    const new_path = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "FOO", "FOO-1" });
     defer alloc.free(new_path);
     const new_st = try tmp.dir.statFile(std.testing.io, new_path, .{});
     try std.testing.expectEqual(std.Io.File.Kind.directory, new_st.kind);
@@ -48,8 +48,8 @@ test "register rename skips out-of-range instance" {
     defer tmp.cleanup();
 
     try tmp.dir.createDirPath(std.testing.io, "repo");
-    try tmp.dir.createDirPath(std.testing.io, "repo/objects");
-    try tmp.dir.createDirPath(std.testing.io, "repo/objects/REQ-999");
+    try tmp.dir.createDirPath(std.testing.io, "repo/nodes/req/REQ");
+    try tmp.dir.createDirPath(std.testing.io, "repo/nodes/req/REQ/REQ-999");
 
     const repo_abs_z = try tmp.dir.realPathFileAlloc(std.testing.io, "repo", alloc);
     defer alloc.free(repo_abs_z);
@@ -58,7 +58,7 @@ test "register rename skips out-of-range instance" {
     try registerReq(alloc, std.testing.io, repo_abs);
     try register.runRename(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", "FOO");
 
-    const orphan = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-999" });
+    const orphan = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "FOO", "REQ-999" });
     defer alloc.free(orphan);
     _ = try tmp.dir.statFile(std.testing.io, orphan, .{});
 

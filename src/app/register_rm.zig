@@ -6,7 +6,8 @@ const fits_config = @import("../adapters/fs/fits_config.zig");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
 const links_validate = @import("../adapters/fs/links_validate.zig");
-const objects_dir = @import("../adapters/fs/objects_dir.zig");
+const nodes_dir = @import("../adapters/fs/nodes_dir.zig");
+const path_layout = @import("../adapters/fs/path_layout.zig");
 const instance_id = @import("../domain/instance_id.zig");
 const register = @import("register.zig");
 const new_node = @import("new_node.zig");
@@ -99,8 +100,11 @@ fn removeAbstractNodeType(
             try runCascadeForAbstractType(allocator, io, repo_root, objects_rel, reg, type_name, children, opts);
         }
     }
+    const type_dir_rel = path_layout.nodeTypeDirFromFields(allocator, type_name, true, null) catch return;
+    defer allocator.free(type_dir_rel);
     try reg.removeNodeType(type_name);
     try reg.save(io, repo_root);
+    if (!opts.preserve_local) try deleteTypeDirIfEmpty(io, repo_root, type_dir_rel);
 }
 
 fn removeConcreteNodeType(
@@ -112,13 +116,17 @@ fn removeConcreteNodeType(
     reg: *fits_registry.Registry,
     opts: RemoveTypeOpts,
 ) !void {
+    _ = objects_rel;
     const idx = fits_registry.findNodeTypeIndex(reg.node_types.items, type_name) orelse return error.UnknownNodeType;
-    const id_prefix = reg.node_types.items[idx].id_prefix.?;
+    const entry = reg.node_types.items[idx];
+    const id_prefix = entry.id_prefix.?;
+    const type_dir_rel = try path_layout.nodeTypeDirFromFields(allocator, entry.type, false, entry.extends);
+    defer allocator.free(type_dir_rel);
+    const instance_parent_rel = type_dir_rel;
+    const instance_parent_abs = try std.fs.path.join(allocator, &.{ repo_root, instance_parent_rel });
+    defer allocator.free(instance_parent_abs);
 
-    const objects_path = try std.fs.path.join(allocator, &.{ repo_root, objects_rel });
-    defer allocator.free(objects_path);
-
-    const has_fs = try nodeTypeHasFilesystemInstances(allocator, io, objects_path, id_prefix);
+    const has_fs = try nodeTypeHasFilesystemInstances(allocator, io, instance_parent_abs, id_prefix);
     const has_live = reg.hasLiveNodeInstance(id_prefix);
 
     if ((has_live or has_fs) and !opts.force) {
@@ -137,12 +145,13 @@ fn removeConcreteNodeType(
         if (opts.cascade) {
             try runCascadeForConcreteType(allocator, io, repo_root, reg, id_prefix, opts.preserve_local);
         }
-        try forceCleanupNodeFilesystem(allocator, io, reg, objects_path, id_prefix, opts.preserve_local);
+        try forceCleanupNodeFilesystem(allocator, io, reg, instance_parent_abs, instance_parent_rel, id_prefix, opts.preserve_local);
     }
 
     try reg.removeNodeType(type_name);
     try reg.save(io, repo_root);
     try fits_config.removeRepoObjTypeCreateFolderKey(allocator, io, repo_root, id_prefix);
+    if (!opts.preserve_local) try deleteTypeDirIfEmpty(io, repo_root, type_dir_rel);
 }
 
 fn removeLinkType(
@@ -167,9 +176,13 @@ fn removeLinkType(
         try links_index.removeLinkTypeFromIndex(allocator, io, repo_root, reg, link_type, opts.preserve_local);
     }
 
+    const link_type_dir_rel = try path_layout.linkTypeDir(allocator, link_type);
+    defer allocator.free(link_type_dir_rel);
+
     try reg.removeLinkType(link_type);
     try reg.save(io, repo_root);
     try fits_config.removeRepoLinkTypeCreateFolderKey(allocator, io, repo_root, link_type);
+    if (!opts.preserve_local) try deleteRepoPathTree(io, repo_root, link_type_dir_rel);
 }
 
 fn abstractTypeNeedsCascade(
@@ -353,7 +366,7 @@ fn nodeTypeHasFilesystemInstances(
     objects_path: []const u8,
     id_prefix: []const u8,
 ) !bool {
-    var basenames = try objects_dir.collectPrefixBasenames(allocator, io, objects_path, id_prefix);
+    var basenames = try nodes_dir.collectPrefixBasenames(allocator, io, objects_path, id_prefix);
     defer {
         for (basenames.items) |m| allocator.free(m.basename);
         basenames.deinit(allocator);
@@ -386,7 +399,9 @@ fn linkTypeHasIndexInstances(
     }
 
     const cwd = std.Io.Dir.cwd();
-    const rel_dir = try std.fs.path.join(allocator, &.{ repo_root, links_index.relations_dir_name });
+    const type_dir_rel = try path_layout.linkTypeDir(allocator, link_type);
+    defer allocator.free(type_dir_rel);
+    const rel_dir = try std.fs.path.join(allocator, &.{ repo_root, type_dir_rel });
     defer allocator.free(rel_dir);
 
     var dir = cwd.openDir(io, rel_dir, .{ .iterate = true }) catch |err| switch (err) {
@@ -408,13 +423,14 @@ fn forceCleanupNodeFilesystem(
     allocator: std.mem.Allocator,
     io: std.Io,
     reg: *const fits_registry.Registry,
-    objects_path: []const u8,
+    instance_parent_abs: []const u8,
+    instance_parent_rel: []const u8,
     id_prefix: []const u8,
     preserve_local: bool,
 ) !void {
     if (preserve_local) return;
 
-    var basenames = try objects_dir.collectPrefixBasenames(allocator, io, objects_path, id_prefix);
+    var basenames = try nodes_dir.collectPrefixBasenames(allocator, io, instance_parent_abs, id_prefix);
     defer {
         for (basenames.items) |m| allocator.free(m.basename);
         basenames.deinit(allocator);
@@ -423,9 +439,30 @@ fn forceCleanupNodeFilesystem(
     for (basenames.items) |m| {
         const parsed_n = register.parseInstanceNumeric(id_prefix, m.basename) orelse continue;
         if (reg.isTombstoned(id_prefix, parsed_n)) continue;
-        try objects_dir.deleteInstancePath(io, objects_path, m.basename);
+        try nodes_dir.deleteInstancePath(io, instance_parent_abs, m.basename);
         if (!builtin.is_test) {
-            std.debug.print("Removed {s}/{s}\n", .{ new_node.default_objects_dir, m.basename });
+            std.debug.print("Removed {s}/{s}\n", .{ instance_parent_rel, m.basename });
         }
     }
+}
+
+fn deleteRepoPathTree(io: std.Io, repo_root: []const u8, rel_path: []const u8) !void {
+    const abs = try std.fs.path.join(std.heap.page_allocator, &.{ repo_root, rel_path });
+    defer std.heap.page_allocator.free(abs);
+    const cwd = std.Io.Dir.cwd();
+    _ = cwd.statFile(io, abs, .{}) catch return;
+    try cwd.deleteTree(io, abs);
+}
+
+fn deleteTypeDirIfEmpty(io: std.Io, repo_root: []const u8, rel_path: []const u8) !void {
+    const abs = try std.fs.path.join(std.heap.page_allocator, &.{ repo_root, rel_path });
+    defer std.heap.page_allocator.free(abs);
+    const cwd = std.Io.Dir.cwd();
+    var dir = cwd.openDir(io, abs, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+
+    var iter = dir.iterate();
+    while (try iter.next(io)) |_| return;
+
+    try cwd.deleteTree(io, abs);
 }

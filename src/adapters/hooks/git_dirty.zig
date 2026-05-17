@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const links_index = @import("../fs/links_index.zig");
+const path_layout = @import("../fs/path_layout.zig");
 
 const Io = std.Io;
 
@@ -13,18 +14,14 @@ const Io = std.Io;
 pub const GitDirtyState = struct {
     /// True when `git diff HEAD --name-only` completed with exit 0.
     have_git: bool = false,
-    /// Node instance ids under `objects/<id>/`.
+    /// Node instance ids under type-scoped `nodes/.../<id>/`.
     node_ids: std.StringHashMapUnmanaged(void) = .empty,
-    /// Link instance ids for paths under `relations/<id>/` (not the links index file).
+    /// Link instance ids for paths under `links/<link_type>/<id>/`.
     link_folder_ids: std.StringHashMapUnmanaged(void) = .empty,
-    /// The links index file [`relations/links.jsonc`](links_index.links_file_name) is in the diff.
+    /// The links index file `links/links.jsonc` is in the diff.
     links_index_dirty: bool = false,
 
     /// Frees hash map keys duplicated during [`load`].
-    ///
-    /// Parameters:
-    /// - `self`: State populated by [`load`].
-    /// - `allocator`: Same allocator used for map keys.
     pub fn deinit(self: *GitDirtyState, allocator: std.mem.Allocator) void {
         var it = self.node_ids.iterator();
         while (it.next()) |kv| allocator.free(kv.key_ptr.*);
@@ -37,13 +34,6 @@ pub const GitDirtyState = struct {
 };
 
 /// Loads changed paths vs `HEAD` for narrowing incremental hook batches.
-///
-/// Parameters:
-/// - `allocator`: Duplicates ids inserted into the returned maps.
-/// - `io`: Process I/O for `git`.
-/// - `repo_root`: Passed to `git -C`.
-///
-/// Returns: [`GitDirtyState`] with `have_git == false` when `.git` is missing, `git` fails, or diff exits nonzero.
 pub fn load(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !GitDirtyState {
     if (!repoHasGit(io, repo_root)) return .{};
 
@@ -66,21 +56,20 @@ pub fn load(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !GitDir
         const t = std.mem.trim(u8, line, " \t");
         if (t.len == 0) continue;
 
-        const objects_prefix = "objects/";
-        if (std.mem.startsWith(u8, t, objects_prefix)) {
-            const rest = t[objects_prefix.len..];
-            const slash = std.mem.indexOfScalar(u8, rest, '/') orelse rest.len;
-            const id_slice = rest[0..slash];
-            if (id_slice.len == 0) continue;
-            const owned = try allocator.dupe(u8, id_slice);
-            errdefer allocator.free(owned);
-            try state.node_ids.put(allocator, owned, {});
+        const nodes_prefix = path_layout.nodes_root ++ "/";
+        if (std.mem.startsWith(u8, t, nodes_prefix)) {
+            const rest = t[nodes_prefix.len..];
+            if (extractCanonicalId(rest)) |id_slice| {
+                const owned = try allocator.dupe(u8, id_slice);
+                errdefer allocator.free(owned);
+                try state.node_ids.put(allocator, owned, {});
+            }
             continue;
         }
 
-        const relations_prefix = "relations/";
-        if (std.mem.startsWith(u8, t, relations_prefix)) {
-            const rest = t[relations_prefix.len..];
+        const links_prefix = path_layout.links_root ++ "/";
+        if (std.mem.startsWith(u8, t, links_prefix)) {
+            const rest = t[links_prefix.len..];
             const seg_end = std.mem.indexOfScalar(u8, rest, '/') orelse rest.len;
             const first = rest[0..seg_end];
             if (first.len == 0) continue;
@@ -88,13 +77,36 @@ pub fn load(allocator: std.mem.Allocator, io: Io, repo_root: []const u8) !GitDir
                 state.links_index_dirty = true;
                 continue;
             }
-            const owned = try allocator.dupe(u8, first);
+            // links/<link_type>/<link-id>/...
+            const after_type = rest[seg_end..];
+            if (after_type.len == 0 or after_type[0] != '/') continue;
+            const id_rest = after_type[1..];
+            const id_end = std.mem.indexOfScalar(u8, id_rest, '/') orelse id_rest.len;
+            const link_id = id_rest[0..id_end];
+            if (link_id.len == 0) continue;
+            const owned = try allocator.dupe(u8, link_id);
             errdefer allocator.free(owned);
             try state.link_folder_ids.put(allocator, owned, {});
         }
     }
 
     return state;
+}
+
+/// Returns a canonical `{PREFIX}-{n}` slice from a path under `nodes/`, or null.
+fn extractCanonicalId(path_under_nodes: []const u8) ?[]const u8 {
+    var segments = std.mem.splitScalar(u8, path_under_nodes, '/');
+    while (segments.next()) |seg| {
+        const dash = std.mem.indexOfScalar(u8, seg, '-') orelse continue;
+        if (dash + 1 >= seg.len) continue;
+        var i: usize = dash + 1;
+        var digits: usize = 0;
+        while (i < seg.len and std.ascii.isDigit(seg[i])) : (i += 1) digits += 1;
+        if (digits == 0) continue;
+        const end = dash + 1 + digits;
+        if (end == seg.len or seg[end] == ' ') return seg[0..end];
+    }
+    return null;
 }
 
 fn repoHasGit(io: Io, repo_root: []const u8) bool {

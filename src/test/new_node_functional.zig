@@ -26,7 +26,7 @@ test "new node creates objects dir and registry entry when prefix registered" {
     const reg_st = try reg_file.stat(std.testing.io);
     try std.testing.expect(reg_st.size > 0);
 
-    const obj_sub = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-1" });
+    const obj_sub = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "REQ", "REQ-1" });
     defer alloc.free(obj_sub);
     const obj_st = try tmp.dir.statFile(std.testing.io, obj_sub, .{});
     try std.testing.expectEqual(std.Io.File.Kind.directory, obj_st.kind);

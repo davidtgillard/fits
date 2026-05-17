@@ -1,4 +1,4 @@
-//! CLI use-case: create a new graph node under `objects/` using the machine-owned registry.
+//! CLI use-case: create a new graph node under type-scoped `nodes/` using the machine-owned registry.
 //! IDs are never reused after deletion: counters in `.fits/registry.json` only increase.
 //! The node type prefix must be registered first via `fits register node-type`.
 //!
@@ -8,12 +8,13 @@ const builtin = @import("builtin");
 const std = @import("std");
 const fits_config = @import("../adapters/fs/fits_config.zig");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
+const path_layout = @import("../adapters/fs/path_layout.zig");
 
 /// Default repository root when the CLI is run from the project tree.
 pub const default_repo_root: []const u8 = ".";
 
 /// Default directory name under the repository root where node instances live (matches validate).
-pub const default_objects_dir: []const u8 = "objects";
+pub const default_objects_dir: []const u8 = path_layout.nodes_root;
 
 /// Options for [`run`].
 pub const NewOptions = struct {
@@ -25,7 +26,7 @@ pub const NewOptions = struct {
 
 /// Creates a new node with id `{obj_prefix}-{n}` where `n` comes from the registry (never padded).
 ///
-/// Persists the updated registry before touching `objects/` so concurrent runs still advance
+/// Persists the updated registry before touching `nodes/` so concurrent runs still advance
 /// the counter even if directory creation fails (the numeric id is considered consumed).
 ///
 /// Parameters:
@@ -46,6 +47,7 @@ pub fn run(
     obj_prefix: []const u8,
     options: NewOptions,
 ) !void {
+    _ = objects_rel;
     try fits_registry.validateTypeName(obj_prefix);
     for (options.title_words) |w| {
         try validateTitleWord(w);
@@ -72,28 +74,31 @@ pub fn run(
     const display_name = try formatDisplayName(allocator, obj_prefix, n, options.title_words);
     defer allocator.free(display_name);
 
+    const instance_parent_rel = try path_layout.nodeInstanceParent(allocator, &reg, obj_prefix);
+    defer allocator.free(instance_parent_rel);
+
     const cwd = std.Io.Dir.cwd();
-    const objects_dir_path = try std.fs.path.join(allocator, &.{ repo_root, objects_rel });
-    defer allocator.free(objects_dir_path);
-    try cwd.createDirPath(io, objects_dir_path);
+    const instance_parent_abs = try std.fs.path.join(allocator, &.{ repo_root, instance_parent_rel });
+    defer allocator.free(instance_parent_abs);
+    try cwd.createDirPath(io, instance_parent_abs);
 
     if (use_markdown) {
         const file_name = try std.mem.concat(allocator, u8, &.{ display_name, ".md" });
         defer allocator.free(file_name);
-        const file_path = try std.fs.path.join(allocator, &.{ objects_dir_path, file_name });
+        const file_path = try std.fs.path.join(allocator, &.{ instance_parent_abs, file_name });
         defer allocator.free(file_path);
         const f = try cwd.createFile(io, file_path, .{ .read = false, .truncate = true, .exclusive = true });
         defer f.close(io);
 
-        const line = try std.fs.path.join(allocator, &.{ objects_rel, file_name });
+        const line = try std.fs.path.join(allocator, &.{ instance_parent_rel, file_name });
         defer allocator.free(line);
         if (!builtin.is_test) std.debug.print("Created {s}\n", .{line});
     } else {
-        const dir_path = try std.fs.path.join(allocator, &.{ objects_dir_path, display_name });
+        const dir_path = try std.fs.path.join(allocator, &.{ instance_parent_abs, display_name });
         defer allocator.free(dir_path);
         try cwd.createDirPath(io, dir_path);
 
-        const line = try std.fs.path.join(allocator, &.{ objects_rel, display_name });
+        const line = try std.fs.path.join(allocator, &.{ instance_parent_rel, display_name });
         defer allocator.free(line);
         if (!builtin.is_test) std.debug.print("Created {s}/\n", .{line});
     }

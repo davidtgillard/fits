@@ -186,7 +186,6 @@ fn validateNodeTypes(report: *ValidationReport, base_path: []const u8, node_type
 
         validateNodeTypeObject(report, nt_path, obj);
     }
-
 }
 
 fn validateLinkTypes(report: *ValidationReport, base_path: []const u8, link_types: std.json.Array) void {
@@ -327,9 +326,16 @@ fn validateNodeTypeObject(report: *ValidationReport, nt_path: []const u8, obj: O
         return;
     }
 
-    const allowed = [_][]const u8{ "type", "abstract", "id_prefix", "extends", "next", "tombstones" };
-    const required = [_][]const u8{ "type", "extends", "next" };
-    checkObjectShape(report, nt_path, obj, &allowed, &required);
+    const has_extends = obj.get("extends") != null;
+    if (has_extends) {
+        const allowed = [_][]const u8{ "type", "abstract", "id_prefix", "extends", "next", "tombstones" };
+        const required = [_][]const u8{ "type", "extends", "next" };
+        checkObjectShape(report, nt_path, obj, &allowed, &required);
+    } else {
+        const allowed = [_][]const u8{ "type", "abstract", "id_prefix", "next", "tombstones" };
+        const required = [_][]const u8{ "type", "next" };
+        checkObjectShape(report, nt_path, obj, &allowed, &required);
+    }
 
     if (obj.get("type")) |v| validateTypeNameField(report, nt_path, "type", v);
     if (obj.get("id_prefix")) |v| validateTypeNameField(report, nt_path, "id_prefix", v);

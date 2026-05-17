@@ -1,4 +1,4 @@
-//! Structural validation for [`relations/links.jsonc`] after JSONC comments are stripped.
+//! Structural validation for [`links/links.jsonc`] after JSONC comments are stripped.
 //! Semantic checks against `.fits/registry.json` live in [`validateLinksAgainstRegistryRows`].
 
 const std = @import("std");

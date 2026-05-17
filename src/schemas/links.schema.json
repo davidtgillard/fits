@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fits.local/schemas/links.schema.json",
   "title": "fits links index",
-  "description": "Human-editable link instances at relations/links.jsonc (comments stripped before validation)",
+  "description": "Human-editable link instances at links/links.jsonc (comments stripped before validation)",
   "type": "object",
   "additionalProperties": false,
   "required": ["description", "version", "kind", "links"],

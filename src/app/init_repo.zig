@@ -20,7 +20,7 @@ const minimal_config_body =
 
 /// Initializes a fits-managed repository layout under `repo_root`.
 ///
-/// Fails with `error.AlreadyInitialized` when `.fits/registry.json` or `relations/links.jsonc` already exists.
+/// Fails with `error.AlreadyInitialized` when `.fits/registry.json` or `links/links.jsonc` already exists.
 ///
 /// Parameters:
 /// - `allocator`: Path joins and file buffers.

@@ -6,7 +6,7 @@ Optional subprocess hooks can run after built-in structural validators during `f
 
 - **Version:** JSON schemas [`schemas/hooks_request.schema.json`](../schemas/hooks_request.schema.json) and [`schemas/hooks_response.schema.json`](../schemas/hooks_response.schema.json); domain constant `protocol_version = 2` in code.
 - **Transport:** One batch per hook kind per validate run: a **nodes** hook (optional) and a **links** hook (optional). The request includes a **bounded subgraph** of the repo graph (see schemas), not the full graph.
-- **Terminology:** A graph **object** is either a **node** (dataset instance under `objects/`) or a **link** (row in `relations/links.jsonc`). The nodes hook validates node payloads; the links hook validates link rows.
+- **Terminology:** A graph **object** is either a **node** (dataset instance under type-scoped `nodes/…`) or a **link** (row in `links/links.jsonc`). The nodes hook validates node payloads; the links hook validates link rows.
 - **Extension point:** Schemas and docs reserve `extension_graph_api` for a future host-side graph query API (in-process or stdio RPC). Not available in the first delivery.
 
 ## Configuration (`.fits/hooks.toml`)
@@ -44,7 +44,7 @@ fits validate --hooks --no-hooks-incremental
 When incremental mode is on (`--hooks` without `--hooks-full` or `--no-hooks-incremental`):
 
 1. **Fingerprints** (Wyhash over canonical node bundle bytes and link row fields) are stored in the LatticeDB cache under keys `hooks:node:<argv-hash>:<id>` and `hooks:link:...`. If the fingerprint matches the last successful run for that id, the entity is skipped for that hook.
-2. **Git narrowing** (when `.git` exists and `git diff HEAD --name-only` succeeds): only paths that appear in the diff are eligible. Node ids are taken from paths under `objects/<id>/`; link rows are filtered when `relations/links.jsonc` changes or paths under `relations/<link-id>/` change. If git is missing or the command fails, hooks fall back to fingerprint-only narrowing.
+2. **Git narrowing** (when `.git` exists and `git diff HEAD --name-only` succeeds): only paths that appear in the diff are eligible. Node ids are taken from path segments under `nodes/…` that match `{ID_PREFIX}-{n}`; link rows are filtered when `links/links.jsonc` changes or paths under `links/<link-type>/<link-id>/` change. If git is missing or the command fails, hooks fall back to fingerprint-only narrowing.
 
 After a hook exits successfully (`0`), fingerprints for the entities in that batch are updated.
 

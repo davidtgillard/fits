@@ -39,7 +39,7 @@ test "rm without git tombstones n only" {
 
     try remove_object.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ-1");
 
-    const obj_path = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-1" });
+    const obj_path = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "REQ", "REQ-1" });
     defer alloc.free(obj_path);
     try std.testing.expectError(error.FileNotFound, tmp.dir.statFile(std.testing.io, obj_path, .{}));
 
@@ -50,7 +50,7 @@ test "rm without git tombstones n only" {
     try std.testing.expectEqual(@as(?[]const u8, null), reg.node_types.items[idx].tombstones.items[0].git_commit);
 
     try new_node.run(alloc, std.testing.io, repo_abs, new_node.default_objects_dir, "REQ", .{});
-    const obj2 = try std.fs.path.join(alloc, &.{ "repo", "objects", "REQ-2" });
+    const obj2 = try std.fs.path.join(alloc, &.{ "repo", "nodes", "req", "REQ", "REQ-2" });
     defer alloc.free(obj2);
     _ = try tmp.dir.statFile(std.testing.io, obj2, .{});
 }

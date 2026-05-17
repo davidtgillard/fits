@@ -7,6 +7,7 @@ const hook_protocol = @import("../../domain/hook_protocol.zig");
 const fits_registry = @import("../fs/fits_registry.zig");
 const links_index = @import("../fs/links_index.zig");
 const fits_config = @import("../fs/fits_config.zig");
+const path_layout = @import("../fs/path_layout.zig");
 
 const Io = std.Io;
 const JsonValue = std.json.Value;
@@ -216,7 +217,7 @@ fn linkWorkItem(
     }
     var folder_a = std.json.Array.init(a);
     if (prefs.linkCreateFolder(row.link_type) orelse false) {
-        var scanned = try scanLinkFolder(parent_alloc, io, repo_root, row.id);
+        var scanned = try scanLinkFolder(parent_alloc, io, repo_root, row.link_type, row.id);
         defer {
             for (scanned.items) |ent| {
                 parent_alloc.free(ent.rel);
@@ -247,9 +248,10 @@ fn scanLinkFolder(
     allocator: std.mem.Allocator,
     io: Io,
     repo_root: []const u8,
+    link_type: []const u8,
     link_id: []const u8,
 ) !std.ArrayListUnmanaged(Scanned) {
-    const rel_dir = try std.fs.path.join(allocator, &.{ links_index.relations_dir_name, link_id });
+    const rel_dir = try path_layout.linkInstanceDir(allocator, link_type, link_id);
     defer allocator.free(rel_dir);
     const abs_dir = try std.fs.path.join(allocator, &.{ repo_root, rel_dir });
     defer allocator.free(abs_dir);

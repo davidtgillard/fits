@@ -1,20 +1,20 @@
-//! Helpers for scanning and mutating paths under `objects/`.
+//! Helpers for scanning and mutating node instance paths under type-scoped `nodes/` layout.
 
 const std = @import("std");
 const register = @import("../../app/register.zig");
 
 const Io = std.Io;
 
-/// One basename under `objects/` matching an instance numeric suffix.
+/// One basename under an instance parent matching an instance numeric suffix.
 pub const InstanceMatch = struct {
     basename: []const u8,
 };
 
-/// Collects basenames under `objects_path` whose numeric suffix equals `n`.
+/// Collects basenames under `instance_parent_path` whose numeric suffix equals `n`.
 pub fn collectInstanceMatches(
     allocator: std.mem.Allocator,
     io: Io,
-    objects_path: []const u8,
+    instance_parent_path: []const u8,
     obj_prefix: []const u8,
     n: u64,
 ) !std.ArrayList(InstanceMatch) {
@@ -25,7 +25,7 @@ pub fn collectInstanceMatches(
         out.deinit(allocator);
     }
 
-    var dir = cwd.openDir(io, objects_path, .{ .iterate = true }) catch |err| switch (err) {
+    var dir = cwd.openDir(io, instance_parent_path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return out,
         else => |e| return e,
     };
@@ -43,11 +43,11 @@ pub fn collectInstanceMatches(
     return out;
 }
 
-/// Collects every basename under `objects_path` matching `obj_prefix` (any numeric suffix).
+/// Collects every basename under `instance_parent_path` matching `obj_prefix` (any numeric suffix).
 pub fn collectPrefixBasenames(
     allocator: std.mem.Allocator,
     io: Io,
-    objects_path: []const u8,
+    instance_parent_path: []const u8,
     obj_prefix: []const u8,
 ) !std.ArrayList(InstanceMatch) {
     const cwd = Io.Dir.cwd();
@@ -57,7 +57,7 @@ pub fn collectPrefixBasenames(
         out.deinit(allocator);
     }
 
-    var dir = cwd.openDir(io, objects_path, .{ .iterate = true }) catch |err| switch (err) {
+    var dir = cwd.openDir(io, instance_parent_path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return out,
         else => |e| return e,
     };
@@ -74,10 +74,10 @@ pub fn collectPrefixBasenames(
     return out;
 }
 
-/// Deletes a path under `objects_path` (file or directory tree).
-pub fn deleteInstancePath(io: Io, objects_path: []const u8, basename: []const u8) !void {
+/// Deletes a path under `instance_parent_path` (file or directory tree).
+pub fn deleteInstancePath(io: Io, instance_parent_path: []const u8, basename: []const u8) !void {
     const cwd = Io.Dir.cwd();
-    const full = try std.fs.path.join(std.heap.page_allocator, &.{ objects_path, basename });
+    const full = try std.fs.path.join(std.heap.page_allocator, &.{ instance_parent_path, basename });
     defer std.heap.page_allocator.free(full);
 
     const st = try cwd.statFile(io, full, .{});

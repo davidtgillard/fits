@@ -1,9 +1,10 @@
-//! CLI use-case: remove a graph **object** (a **node** under `objects/` or a **link** row), tombstone ids, and optionally record removal in VCS.
+//! CLI use-case: remove a graph **object** (a **node** under `nodes/` or a **link** row), tombstone ids, and optionally record removal in VCS.
 
 const builtin = @import("builtin");
 const std = @import("std");
 const fits_registry = @import("../adapters/fs/fits_registry.zig");
-const objects_dir = @import("../adapters/fs/objects_dir.zig");
+const nodes_dir = @import("../adapters/fs/nodes_dir.zig");
+const path_layout = @import("../adapters/fs/path_layout.zig");
 const git_removal = @import("../adapters/git/removal.zig");
 const instance_id = @import("../domain/instance_id.zig");
 const vcs_removal = @import("../domain/vcs_removal.zig");
@@ -56,10 +57,13 @@ fn runRemoveNodeOnly(
     if (n == 0 or n >= next_val) return error.NotInIssuedRange;
     if (reg.isTombstoned(obj_prefix, n)) return error.AlreadyTombstoned;
 
-    const objects_path = try std.fs.path.join(allocator, &.{ repo_root, objects_rel });
-    defer allocator.free(objects_path);
+    _ = objects_rel;
+    const instance_parent_rel = try path_layout.nodeInstanceParent(allocator, reg, obj_prefix);
+    defer allocator.free(instance_parent_rel);
+    const instance_parent_abs = try std.fs.path.join(allocator, &.{ repo_root, instance_parent_rel });
+    defer allocator.free(instance_parent_abs);
 
-    var matches = try objects_dir.collectInstanceMatches(allocator, io, objects_path, obj_prefix, n);
+    var matches = try nodes_dir.collectInstanceMatches(allocator, io, instance_parent_abs, obj_prefix, n);
     defer {
         for (matches.items) |m| allocator.free(m.basename);
         matches.deinit(allocator);
@@ -72,7 +76,7 @@ fn runRemoveNodeOnly(
         rel_paths.deinit(allocator);
     }
     for (matches.items) |m| {
-        const rel = try std.fs.path.join(allocator, &.{ objects_rel, m.basename });
+        const rel = try std.fs.path.join(allocator, &.{ instance_parent_rel, m.basename });
         try rel_paths.append(allocator, rel);
     }
 
@@ -90,14 +94,14 @@ fn runRemoveNodeOnly(
         merged = try backend.recordRemoval(allocator, io, repo_root, rel_paths.items, message);
         if (!builtin.is_test) {
             for (matches.items) |m| {
-                std.debug.print("Removed {s}/{s}\n", .{ objects_rel, m.basename });
+                std.debug.print("Removed {s}/{s}\n", .{ instance_parent_rel, m.basename });
             }
         }
     } else {
         for (matches.items) |m| {
-            try objects_dir.deleteInstancePath(io, objects_path, m.basename);
+            try nodes_dir.deleteInstancePath(io, instance_parent_abs, m.basename);
             if (!builtin.is_test) {
-                std.debug.print("Removed {s}/{s}\n", .{ objects_rel, m.basename });
+                std.debug.print("Removed {s}/{s}\n", .{ instance_parent_rel, m.basename });
             }
         }
     }

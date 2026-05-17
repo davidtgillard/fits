@@ -38,7 +38,6 @@ const TombstoneJson = struct {
     git_commit: ?[]const u8 = null,
 };
 
-
 /// JSON link-type entry on disk.
 const LinkTypeJson = struct {
     link_type: []const u8,
@@ -54,10 +53,18 @@ const AbstractNodeTypeJson = struct {
     abstract: bool = true,
 };
 
-/// JSON concrete node-type entry on disk.
+/// JSON concrete node-type entry on disk (with abstract parent).
 const ConcreteNodeTypeJson = struct {
     type: []const u8,
     extends: []const u8,
+    id_prefix: ?[]const u8 = null,
+    next: u64,
+    tombstones: []TombstoneJson = &.{},
+};
+
+/// JSON standalone concrete node-type entry on disk (no `extends`).
+const StandaloneConcreteNodeTypeJson = struct {
+    type: []const u8,
     id_prefix: ?[]const u8 = null,
     next: u64,
     tombstones: []TombstoneJson = &.{},
@@ -280,20 +287,22 @@ pub const Registry = struct {
         });
     }
 
-    /// Registers a concrete type extending abstract `extends_type`.
+    /// Registers a concrete node type, optionally extending an abstract parent.
     ///
     /// Parameters:
     /// - `type_name`: Registry type name.
-    /// - `extends_type`: Must name an existing abstract type.
+    /// - `extends_type`: When non-null, must name an existing **abstract** type.
     /// - `id_prefix`: When null, defaults to `type_name`.
     pub fn registerConcreteType(
         self: *Registry,
         type_name: []const u8,
-        extends_type: []const u8,
+        extends_type: ?[]const u8,
         id_prefix: ?[]const u8,
     ) !void {
-        const parent_idx = findNodeTypeIndex(self.node_types.items, extends_type) orelse return error.UnknownNodeType;
-        if (!self.node_types.items[parent_idx].abstract) return error.ExtendsNotAbstract;
+        if (extends_type) |parent_name| {
+            const parent_idx = findNodeTypeIndex(self.node_types.items, parent_name) orelse return error.UnknownNodeType;
+            if (!self.node_types.items[parent_idx].abstract) return error.ExtendsNotAbstract;
+        }
 
         try ensureNameAvailable(self, type_name);
 
@@ -306,8 +315,11 @@ pub const Registry = struct {
         errdefer self.allocator.free(type_copy);
         const prefix_copy = try self.allocator.dupe(u8, prefix);
         errdefer self.allocator.free(prefix_copy);
-        const extends_copy = try self.allocator.dupe(u8, extends_type);
-        errdefer self.allocator.free(extends_copy);
+
+        var extends_copy: ?[]const u8 = null;
+        if (extends_type) |parent_name| {
+            extends_copy = try self.allocator.dupe(u8, parent_name);
+        }
 
         try self.node_types.append(self.allocator, .{
             .type = type_copy,
@@ -649,9 +661,11 @@ fn validateNodeTypeGraph(reg: *const Registry) !void {
         if (entry.abstract) {
             if (entry.id_prefix != null or entry.extends != null or entry.next != 0) return error.RegistryInvalid;
         } else {
-            if (entry.id_prefix == null or entry.extends == null) return error.RegistryInvalid;
-            const parent_idx = findNodeTypeIndex(reg.node_types.items, entry.extends.?) orelse return error.RegistryInvalid;
-            if (!reg.node_types.items[parent_idx].abstract) return error.RegistryInvalid;
+            if (entry.id_prefix == null) return error.RegistryInvalid;
+            if (entry.extends) |parent| {
+                const parent_idx = findNodeTypeIndex(reg.node_types.items, parent) orelse return error.RegistryInvalid;
+                if (!reg.node_types.items[parent_idx].abstract) return error.RegistryInvalid;
+            }
         }
     }
     for (reg.link_types.items) |lt| {
@@ -688,20 +702,31 @@ fn registryJsonSlice(self: *Registry) ![]const u8 {
         const part = if (e.abstract) blk: {
             const row = AbstractNodeTypeJson{ .type = e.type };
             break :blk try std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(row, .{})});
-        } else blk: {
+        } else concrete_blk: {
             const ts_json = try self.allocator.alloc(TombstoneJson, e.tombstones.items.len);
             try tombstone_bufs.append(self.allocator, ts_json);
             for (e.tombstones.items, 0..) |ts, j| {
                 ts_json[j] = .{ .n = ts.n, .git_commit = ts.git_commit };
             }
-            const row = ConcreteNodeTypeJson{
-                .type = e.type,
-                .extends = e.extends.?,
-                .id_prefix = e.id_prefix,
-                .next = e.next,
-                .tombstones = ts_json,
+            const part = if (e.extends) |ext| extends_blk: {
+                const row = ConcreteNodeTypeJson{
+                    .type = e.type,
+                    .extends = ext,
+                    .id_prefix = e.id_prefix,
+                    .next = e.next,
+                    .tombstones = ts_json,
+                };
+                break :extends_blk try std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(row, .{})});
+            } else standalone_blk: {
+                const row = StandaloneConcreteNodeTypeJson{
+                    .type = e.type,
+                    .id_prefix = e.id_prefix,
+                    .next = e.next,
+                    .tombstones = ts_json,
+                };
+                break :standalone_blk try std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(row, .{})});
             };
-            break :blk try std.fmt.allocPrint(self.allocator, "{f}", .{std.json.fmt(row, .{})});
+            break :concrete_blk part;
         };
         try node_parts.append(self.allocator, part);
     }
@@ -761,9 +786,8 @@ fn mergeNodeType(reg: *Registry, nj: NodeTypeJson) !void {
         return;
     }
     const prefix = nj.id_prefix orelse nj.type;
-    const extends = nj.extends orelse return error.RegistryInvalid;
     const next = nj.next orelse return error.RegistryInvalid;
-    try mergeConcreteNodeType(reg, nj.type, prefix, extends, next, nj.tombstones);
+    try mergeConcreteNodeType(reg, nj.type, prefix, nj.extends, next, nj.tombstones);
 }
 
 fn mergeAbstractNodeType(reg: *Registry, type_name: []const u8) !void {
@@ -785,7 +809,7 @@ fn mergeConcreteNodeType(
     reg: *Registry,
     type_name: []const u8,
     id_prefix: []const u8,
-    extends: []const u8,
+    extends: ?[]const u8,
     next: u64,
     tombstones_json: []const TombstoneJson,
 ) !void {
@@ -793,14 +817,17 @@ fn mergeConcreteNodeType(
     errdefer reg.allocator.free(type_copy);
     const prefix_copy = try reg.allocator.dupe(u8, id_prefix);
     errdefer reg.allocator.free(prefix_copy);
-    const extends_copy = try reg.allocator.dupe(u8, extends);
-    errdefer reg.allocator.free(extends_copy);
+
+    var extends_copy: ?[]const u8 = null;
+    if (extends) |parent_name| {
+        extends_copy = try reg.allocator.dupe(u8, parent_name);
+    }
 
     const idx = findNodeTypeIndex(reg.node_types.items, type_copy);
     const entry: *Registry.NodeTypeEntry = if (idx) |i| blk: {
         reg.allocator.free(type_copy);
         reg.allocator.free(prefix_copy);
-        reg.allocator.free(extends_copy);
+        if (extends_copy) |ec| reg.allocator.free(ec);
         const e = &reg.node_types.items[i];
         e.next = @max(e.next, next);
         break :blk e;

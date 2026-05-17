@@ -1,16 +1,20 @@
-//! Loads, validates, and writes [`relations/links.jsonc`].
+//! Loads, validates, and writes [`links/links.jsonc`].
 
 const std = @import("std");
 const fits_registry = @import("fits_registry.zig");
 const jsonc_strip = @import("jsonc_strip.zig");
 const links_validate = @import("links_validate.zig");
 const instance_id = @import("../../domain/instance_id.zig");
+const path_layout = @import("path_layout.zig");
 
 const Io = std.Io;
 const Dir = Io.Dir;
 
-/// Directory under the repo root holding `links.jsonc` and optional per-link folders.
-pub const relations_dir_name: []const u8 = "relations";
+/// Directory under the repo root holding `links.jsonc` and per-link-type folders.
+pub const links_dir_name: []const u8 = path_layout.links_root;
+
+/// Deprecated alias; use [`links_dir_name`].
+pub const relations_dir_name: []const u8 = links_dir_name;
 
 /// Human-editable JSONC index of link instances.
 pub const links_file_name: []const u8 = "links.jsonc";
@@ -75,17 +79,14 @@ fn readFileAlloc(io: Io, allocator: std.mem.Allocator, path: []const u8, max_byt
     return buf;
 }
 
-/// Joins `repo_root/relations/links.jsonc` (caller frees).
+/// Joins `repo_root/links/links.jsonc` (caller frees).
 pub fn joinLinksAbsPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]const u8 {
-    return std.fs.path.join(allocator, &.{ repo_root, relations_dir_name, links_file_name });
+    return path_layout.linksIndexRel(allocator, repo_root);
 }
 
-/// Display path when reporting issues (e.g. `relations/links.jsonc`).
+/// Display path when reporting issues (e.g. `links/links.jsonc`).
 pub fn formatLinksRelPath(allocator: std.mem.Allocator, repo_root: []const u8) ![]const u8 {
-    if (std.mem.eql(u8, repo_root, ".")) {
-        return std.fs.path.join(allocator, &.{ relations_dir_name, links_file_name });
-    }
-    return std.fs.path.join(allocator, &.{ repo_root, relations_dir_name, links_file_name });
+    return path_layout.linksIndexRel(allocator, repo_root);
 }
 
 /// Loads and validates links; appends structural and semantic issues to `report`.
@@ -299,12 +300,16 @@ pub fn rewriteLinkTypeRows(
             .labels = labels_c,
         });
 
-        const old_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name, r.id });
+        const old_dir = try path_layout.linkInstanceDir(allocator, old_lt, r.id);
         defer allocator.free(old_dir);
-        const new_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name, new_id });
+        const old_abs = try std.fs.path.join(allocator, &.{ repo_root, old_dir });
+        defer allocator.free(old_abs);
+        const new_dir_rel = try path_layout.linkInstanceDir(allocator, new_lt, new_id);
+        defer allocator.free(new_dir_rel);
+        const new_dir = try std.fs.path.join(allocator, &.{ repo_root, new_dir_rel });
         defer allocator.free(new_dir);
 
-        cwd.rename(old_dir, cwd, new_dir, io) catch |err| switch (err) {
+        cwd.rename(old_abs, cwd, new_dir, io) catch |err| switch (err) {
             error.FileNotFound => {},
             else => |e| return e,
         };
@@ -329,7 +334,7 @@ pub fn hasDanglingLinksForPrefix(
 /// Removes link rows whose endpoints use `obj_prefix` (skips tombstoned link ids).
 ///
 /// Parameters:
-/// - `preserve_local`: when true, keeps `relations/<id>/` directories on disk.
+/// - `preserve_local`: when true, keeps `links/<link-type>/<id>/` directories on disk.
 ///
 /// Returns: number of rows removed.
 pub fn removeDanglingLinksForPrefix(
@@ -367,7 +372,9 @@ pub fn removeDanglingLinksForPrefix(
         if (isDanglingRow(registry, r, &one)) {
             removed += 1;
             if (!preserve_local) {
-                const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name, r.id });
+                const payload_rel = try path_layout.linkInstanceDir(allocator, r.link_type, r.id);
+                defer allocator.free(payload_rel);
+                const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, payload_rel });
                 defer allocator.free(payload_dir);
                 if (cwd.statFile(io, payload_dir, .{})) |_| {
                     try cwd.deleteTree(io, payload_dir);
@@ -417,7 +424,9 @@ pub fn removeLinkTypeFromIndex(
             const parsed_n = instance_id.parseSuffixAfterPrefix(r.id, link_type) orelse continue;
             if (registry.isLinkTombstoned(link_type, parsed_n)) continue;
             if (!preserve_local) {
-                const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name, r.id });
+                const payload_rel = try path_layout.linkInstanceDir(allocator, link_type, r.id);
+                defer allocator.free(payload_rel);
+                const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, payload_rel });
                 defer allocator.free(payload_dir);
                 if (cwd.statFile(io, payload_dir, .{})) |_| {
                     try cwd.deleteTree(io, payload_dir);
@@ -431,9 +440,11 @@ pub fn removeLinkTypeFromIndex(
     try writeLinksAtomic(io, allocator, repo_root, kept.items);
 
     if (!preserve_local) {
-        const rel_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name });
-        defer allocator.free(rel_dir);
-        var dir = cwd.openDir(io, rel_dir, .{ .iterate = true }) catch |err| switch (err) {
+        const type_dir_rel = try path_layout.linkTypeDir(allocator, link_type);
+        defer allocator.free(type_dir_rel);
+        const type_dir_abs = try std.fs.path.join(allocator, &.{ repo_root, type_dir_rel });
+        defer allocator.free(type_dir_abs);
+        var dir = cwd.openDir(io, type_dir_abs, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => return,
             else => |e| return e,
         };
@@ -444,7 +455,7 @@ pub fn removeLinkTypeFromIndex(
             if (entry.kind != .directory) continue;
             const parsed_n = instance_id.parseSuffixAfterPrefix(entry.name, link_type) orelse continue;
             if (registry.isLinkTombstoned(link_type, parsed_n)) continue;
-            const full = try std.fs.path.join(allocator, &.{ rel_dir, entry.name });
+            const full = try std.fs.path.join(allocator, &.{ type_dir_abs, entry.name });
             defer allocator.free(full);
             try cwd.deleteTree(io, full);
         }
@@ -502,12 +513,17 @@ fn freeLinkRow(allocator: std.mem.Allocator, row: LinkRowJson) void {
     }
 }
 
-/// Serializes `rows` into `relations/links.jsonc` atomically (JSON, no comments).
+/// Serializes `rows` into `links/links.jsonc` atomically (JSON, no comments).
 pub fn writeLinksAtomic(io: Io, allocator: std.mem.Allocator, repo_root: []const u8, links_rows: []const LinkRowJson) !void {
     const cwd = Dir.cwd();
-    const rel_dir = try std.fs.path.join(allocator, &.{ repo_root, relations_dir_name });
-    defer allocator.free(rel_dir);
-    try cwd.createDirPath(io, rel_dir);
+    const path = try joinLinksAbsPath(allocator, repo_root);
+    defer allocator.free(path);
+    const parent = std.fs.path.dirname(path) orelse links_dir_name;
+    if (std.fs.path.isAbsolute(parent)) {
+        try cwd.createDirPath(io, parent);
+    } else {
+        try cwd.createDirPath(io, parent);
+    }
 
     const env = LinksEnvelope{
         .description = links_validate.links_description,
@@ -525,8 +541,6 @@ pub fn writeLinksAtomic(io: Io, allocator: std.mem.Allocator, repo_root: []const
     try stringify.write(env);
     const json_slice = json_out.written();
 
-    const path = try joinLinksAbsPath(allocator, repo_root);
-    defer allocator.free(path);
     const tmp_path = try std.mem.concat(allocator, u8, &.{ path, ".tmp" });
     defer allocator.free(tmp_path);
 

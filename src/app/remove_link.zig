@@ -1,4 +1,4 @@
-//! Removes a link instance: updates [`relations/links.jsonc`], tombstones in the registry, drops optional payload dir.
+//! Removes a link instance: updates [`links/links.jsonc`], tombstones in the registry, drops optional payload dir.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -6,10 +6,11 @@ const fits_registry = @import("../adapters/fs/fits_registry.zig");
 const instance_id = @import("../domain/instance_id.zig");
 const links_index = @import("../adapters/fs/links_index.zig");
 const links_validate = @import("../adapters/fs/links_validate.zig");
+const path_layout = @import("../adapters/fs/path_layout.zig");
 
 pub const default_repo_root: []const u8 = ".";
 
-/// Tombstones link `link_id`, removes its row from `relations/links.jsonc`, and deletes `relations/{link_id}/` if present.
+/// Tombstones link `link_id`, removes its row from `links/links.jsonc`, and deletes the payload dir under `links/<link-type>/` if present.
 pub fn run(allocator: std.mem.Allocator, io: std.Io, repo_root: []const u8, link_id: []const u8) !void {
     var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
     defer reg.deinit();
@@ -57,8 +58,11 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, repo_root: []const u8, link
     try reg.save(io, repo_root);
 
     const cwd = std.Io.Dir.cwd();
-    const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, links_index.relations_dir_name, link_id });
+    const payload_rel = try path_layout.linkInstanceDir(allocator, parsed.link_type, link_id);
+    defer allocator.free(payload_rel);
+    const payload_dir = try std.fs.path.join(allocator, &.{ repo_root, payload_rel });
     defer allocator.free(payload_dir);
+    _ = cwd.statFile(io, payload_dir, .{}) catch return;
     try cwd.deleteTree(io, payload_dir);
 
     if (!builtin.is_test) std.debug.print("Removed link {s}\n", .{link_id});
