@@ -136,7 +136,37 @@ pub fn runLinkType(
     }
 }
 
-/// Lists node types (tab-separated: type, abstract, extends, id_prefix, next).
+fn printNodeTypeEntry(entry: fits_registry.Registry.NodeTypeEntry) void {
+    if (entry.abstract) {
+        std.debug.print("  {s} (abstract)\n", .{entry.type});
+        return;
+    }
+    if (entry.extends) |ext| {
+        std.debug.print("  {s} (concrete, extends {s}, id_prefix {s}, next {d})\n", .{
+            entry.type,
+            ext,
+            entry.id_prefix.?,
+            entry.next,
+        });
+        return;
+    }
+    std.debug.print("  {s} (concrete, id_prefix {s}, next {d})\n", .{
+        entry.type,
+        entry.id_prefix.?,
+        entry.next,
+    });
+}
+
+fn printLinkTypeEntry(entry: fits_registry.Registry.LinkTypeEntry) void {
+    std.debug.print("  {s} (OUT {s} -> IN {s}, next {d})\n", .{
+        entry.link_type,
+        entry.out_type,
+        entry.in_type,
+        entry.next,
+    });
+}
+
+/// Lists registered node types in a human-readable format.
 pub fn runListNodeTypes(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -156,23 +186,16 @@ pub fn runListNodeTypes(
         }
     }.less);
 
+    if (!builtin.is_test) {
+        std.debug.print("Node types:\n", .{});
+        if (sorted.len == 0) std.debug.print("  (none)\n", .{});
+    }
     for (sorted) |entry| {
-        if (!builtin.is_test) {
-            if (entry.abstract) {
-                std.debug.print("{s}\ttrue\t\t\t0\n", .{entry.type});
-            } else {
-                std.debug.print("{s}\tfalse\t{s}\t{s}\t{d}\n", .{
-                    entry.type,
-                    entry.extends.?,
-                    entry.id_prefix.?,
-                    entry.next,
-                });
-            }
-        }
+        if (!builtin.is_test) printNodeTypeEntry(entry);
     }
 }
 
-/// Lists link types (tab-separated: link_type, in_type, out_type, next).
+/// Lists registered link types in a human-readable format.
 pub fn runListLinkTypes(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -192,26 +215,23 @@ pub fn runListLinkTypes(
         }
     }.less);
 
+    if (!builtin.is_test) {
+        std.debug.print("Link types:\n", .{});
+        if (sorted.len == 0) std.debug.print("  (none)\n", .{});
+    }
     for (sorted) |entry| {
-        if (!builtin.is_test) {
-            std.debug.print("{s}\t{s}\t{s}\t{d}\n", .{
-                entry.link_type,
-                entry.in_type,
-                entry.out_type,
-                entry.next,
-            });
-        }
+        if (!builtin.is_test) printLinkTypeEntry(entry);
     }
 }
 
+/// Lists all registered node and link types.
 pub fn runListAll(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
 ) !void {
-    if (!builtin.is_test) std.debug.print("# node types (type\tabstract\textends\tid_prefix\tnext)\n", .{});
     try runListNodeTypes(allocator, io, repo_root);
-    if (!builtin.is_test) std.debug.print("# link types (link_type\tin_type\tout_type\tnext)\n", .{});
+    if (!builtin.is_test) std.debug.print("\n", .{});
     try runListLinkTypes(allocator, io, repo_root);
 }
 
