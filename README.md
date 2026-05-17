@@ -28,6 +28,7 @@ Invoke `fits` with a subcommand. If you omit the subcommand or pass an unknown o
 Usage:
   fits init
   fits validate [--dry-run] [--hooks-full-graph]
+  fits rebuild-cache
   fits new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
   fits new link <LINK_TYPE> <IN_ID> <OUT_ID>
   fits rm <NODE_ID or LINK_ID>
@@ -59,6 +60,14 @@ See [docs/fits_links.md](docs/fits_links.md) for the links file and graph edge r
 
 ```sh
 fits validate
+```
+
+### `fits rebuild-cache`
+
+Clears hook fingerprint entries in `.fits/latticedb/` (keys prefixed with `hooks:`), then runs configured validate hooks on the **full graph** and writes fresh fingerprints. Does not run built-in validators or clear the update-check timestamp. If hooks are disabled, only the clear step runs.
+
+```sh
+fits rebuild-cache
 ```
 
 ### `fits register`

@@ -47,6 +47,14 @@ When incremental mode is on (default `fits validate`, without `--hooks-full-grap
 
 After a hook exits successfully (`0`), fingerprints for the entities in that batch are updated.
 
+## `fits rebuild-cache`
+
+```sh
+fits rebuild-cache
+```
+
+Deletes all hook fingerprint cache entries (`hooks:*`), then runs hooks on the full graph (same scope as `fits validate --hooks-full-graph`) and persists new fingerprints. Built-in validators are not run. The update-check key (`update:last_check`) is left unchanged. When hooks are disabled, only the clear step runs.
+
 ## Response mapping
 
 Hook stdout must be JSON matching `hooks_response.schema.json`. Invalid rows and protocol errors are turned into [`Finding`](../src/domain/validation.zig) records (for example `hook.io`, hook-specific codes). Nonzero exit status produces an error-level finding with stderr text.

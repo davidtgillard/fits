@@ -69,6 +69,7 @@ test {
     _ = @import("adapters/hooks/git_dirty.zig");
     _ = @import("adapters/hooks/hook_request.zig");
     _ = @import("app/hooks_validate.zig");
+    _ = @import("app/rebuild_cache.zig");
     _ = @import("cli/persona_manifest.zig");
     _ = @import("adapters/fs/registry_snapshot.zig");
 }

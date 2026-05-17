@@ -6,6 +6,7 @@ const persona_manifest = @import("persona_manifest.zig");
 pub const Command = enum {
     init,
     validate,
+    rebuild_cache,
     new,
     rm,
     register,
@@ -60,6 +61,7 @@ pub const ResolvedPersona = struct {
         return switch (cmd) {
             .init => "init",
             .validate => "validate",
+            .rebuild_cache => "rebuild-cache",
             .new => "new",
             .rm => "rm",
             .register => "register",

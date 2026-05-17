@@ -346,7 +346,7 @@ fn filterLinks(
 }
 
 fn cacheKey(allocator: std.mem.Allocator, kind: []const u8, argv_hash: u64, id: []const u8) ![]const u8 {
-    return std.fmt.allocPrint(allocator, "hooks:{s}:{d}:{s}", .{ kind, argv_hash, id });
+    return std.fmt.allocPrint(allocator, "{s}{s}:{d}:{s}", .{ lattice.hook_fingerprint_prefix, kind, argv_hash, id });
 }
 
 fn persistNodeFingerprints(

@@ -14,6 +14,9 @@ pub const latticedb_dir_name: []const u8 = "latticedb";
 /// Cache key for last successful update check timestamp.
 pub const last_update_check_key: []const u8 = "update:last_check";
 
+/// Prefix for hook fingerprint keys (`hooks:node:…`, `hooks:link:…`).
+pub const hook_fingerprint_prefix: []const u8 = "hooks:";
+
 const value_size: usize = 8;
 
 /// Key-value cache used to accelerate validation and hold machine-owned metadata.
@@ -113,6 +116,34 @@ pub const LatticeDbCache = struct {
         try self.put(last_update_check_key, &buf);
     }
 
+    /// Deletes all cache files whose logical key starts with [`hook_fingerprint_prefix`].
+    ///
+    /// Parameters:
+    /// - `self`: Open store at `store_dir`.
+    ///
+    /// Returns: void on success.
+    /// On failure: I/O errors from directory iteration or delete.
+    pub fn clearHookFingerprints(self: *LatticeDbCache) !void {
+        const encoded_prefix = try encodeKey(self.allocator, hook_fingerprint_prefix);
+        defer self.allocator.free(encoded_prefix);
+
+        const cwd = Dir.cwd();
+        var dir = cwd.openDir(self.io, self.store_dir, .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound => return,
+            else => return err,
+        };
+        defer dir.close(self.io);
+
+        var iter = dir.iterate();
+        while (try iter.next(self.io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.startsWith(u8, entry.name, encoded_prefix)) continue;
+            const path = try std.fs.path.join(self.allocator, &.{ self.store_dir, entry.name });
+            defer self.allocator.free(path);
+            try cwd.deleteFile(self.io, path);
+        }
+    }
+
     pub fn put(self: *LatticeDbCache, key: []const u8, value: []const u8) !void {
         const path = try self.keyPath(key);
         defer self.allocator.free(path);
@@ -203,4 +234,26 @@ test "encodeKey handles colon" {
     const enc = try LatticeDbCache.encodeKey(std.testing.allocator, "update:last_check");
     defer std.testing.allocator.free(enc);
     try std.testing.expect(std.mem.indexOf(u8, enc, "%") != null);
+}
+
+test "clearHookFingerprints removes hooks keys only" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const store = try std.fs.path.join(std.testing.allocator, &.{ "store", latticedb_dir_name });
+    defer std.testing.allocator.free(store);
+    try tmp.dir.createDirPath(std.testing.io, "store");
+    try tmp.dir.createDirPath(std.testing.io, store);
+
+    var cache = try LatticeDbCache.open(std.testing.allocator, std.testing.io, store);
+    defer cache.deinit();
+
+    var hook_buf: [8]u8 = undefined;
+    std.mem.writeInt(u64, &hook_buf, 42, .little);
+    try cache.put("hooks:node:1:DS-1", &hook_buf);
+    try cache.setLastUpdateCheck(99);
+
+    try cache.clearHookFingerprints();
+    try std.testing.expect((try cache.get("hooks:node:1:DS-1")) == null);
+    try std.testing.expectEqual(@as(i64, 99), try cache.getLastUpdateCheck());
 }

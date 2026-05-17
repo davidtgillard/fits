@@ -26,6 +26,7 @@ const graph_link_endpoints_mod = @import("../app/graph_link_endpoints_validator.
 const hooks_validate_mod = @import("../app/hooks_validate.zig");
 const hooks_config_mod = @import("../adapters/fs/hooks_config.zig");
 const init_repo_mod = @import("../app/init_repo.zig");
+const rebuild_cache_mod = @import("../app/rebuild_cache.zig");
 const registry_snapshot = @import("../adapters/fs/registry_snapshot.zig");
 const persona_install = @import("../adapters/fs/persona_install.zig");
 
@@ -75,6 +76,14 @@ pub fn runCli(
             try runValidate(resolved, allocator, io, environ, args_iter);
             return;
         },
+        .rebuild_cache => {
+            if (args_iter.next() != null) {
+                printUsage(resolved);
+                return error.InvalidArgv;
+            }
+            try rebuild_cache_mod.run(resolved, allocator, io, environ);
+            return;
+        },
         .init => {
             if (args_iter.next() != null) {
                 printUsage(resolved);
@@ -111,6 +120,7 @@ pub fn shouldBackgroundUpdate(resolved: *const ResolvedPersona, cmd_str: []const
 fn parseCommand(name: []const u8) ?Command {
     if (std.mem.eql(u8, name, "init")) return .init;
     if (std.mem.eql(u8, name, "validate")) return .validate;
+    if (std.mem.eql(u8, name, "rebuild-cache")) return .rebuild_cache;
     if (std.mem.eql(u8, name, "new")) return .new;
     if (std.mem.eql(u8, name, "rm")) return .rm;
     if (std.mem.eql(u8, name, "register")) return .register;
@@ -747,6 +757,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
             \\Usage:
             \\  {s} init
             \\  {s} validate [--dry-run] [--hooks-full-graph]
+            \\  {s} rebuild-cache
             \\  {s} new node <NODE_PREFIX> [--markdown] [-- <TITLE WORDS...>]
             \\  {s} new link <LINK_TYPE> <IN_ID> <OUT_ID>
             \\  {s} register node-type <NODE_PREFIX> [--create-folder]
@@ -761,7 +772,7 @@ fn printUsage(resolved: *const ResolvedPersona) void {
             \\  {s} update [--check]
             \\  {s} version
             \\
-        , .{ name, name, name, name, name, name, name, name, name, name, name, name, name, name, name });
+        , .{ name, name, name, name, name, name, name, name, name, name, name, name, name, name, name, name });
         return;
     }
     const m = resolved.manifest.?;
