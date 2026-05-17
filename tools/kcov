@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Run kcov via Docker when the host has no kcov package (e.g. Ubuntu 24.04).
+set -euo pipefail
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+exec docker run --rm --security-opt seccomp=unconfined \
+  -e FITS_NO_UPDATE_CHECK \
+  -v "${repo_root}:${repo_root}" \
+  -w "${repo_root}" \
+  kcov/kcov:latest \
+  bash -c 'command -v git >/dev/null 2>&1 || {
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git >/dev/null
+  }
+  exec "$@"' \
+  bash kcov "$@"

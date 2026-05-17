@@ -27,7 +27,27 @@ jobs:
       - name: Build
         run: zig build
 
-      - name: Test
+      - name: Pull kcov image
+        run: docker pull kcov/kcov:latest
+
+      - name: Coverage
         env:
           FITS_NO_UPDATE_CHECK: "1"
-        run: zig build test
+          KCOV: ${{ github.workspace }}/tools/kcov
+        run: |
+          test -f tools/kcov || {
+            echo "::error::tools/kcov is missing. Commit the tools/ directory (kcov wrapper and coverage-summary.py)."
+            exit 1
+          }
+          chmod +x tools/kcov
+          zig build coverage
+
+      - name: Coverage summary
+        run: python3 tools/coverage-summary.py zig-out/coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: zig-out/coverage/
+          retention-days: 30

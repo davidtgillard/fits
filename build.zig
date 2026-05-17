@@ -59,4 +59,27 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    // Coverage uses kcov + LLVM (DWARF). Self-hosted backend yields empty kcov output.
+    const kcov_cmd = b.graph.environ_map.get("KCOV") orelse "kcov";
+    const cov_tests = b.addTest(.{
+        .root_module = root_module,
+    });
+    cov_tests.use_llvm = true;
+
+    const include_path = b.fmt("--include-path={s}", .{b.pathFromRoot("src")});
+    const run_kcov = b.addSystemCommand(&.{
+        kcov_cmd,
+        include_path,
+        "--exclude-pattern=zig-cache,zig-out,/usr/",
+        "--dump-summary",
+    });
+    run_kcov.addDirectoryArg(b.path("zig-out/coverage"));
+    run_kcov.addArtifactArg(cov_tests);
+    // Do not use enableTestRunnerMode: it passes --listen=- for the build runner's
+    // test protocol, which breaks when KCOV is a Docker wrapper (child is docker, not test).
+    run_kcov.setEnvironmentVariable("FITS_NO_UPDATE_CHECK", "1");
+
+    const coverage_step = b.step("coverage", "Run tests with kcov (line + branch coverage)");
+    coverage_step.dependOn(&run_kcov.step);
 }

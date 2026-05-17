@@ -20,6 +20,22 @@ The `fits` executable is produced under `zig-out/bin/` (e.g. `zig-out/bin/fits`)
 zig build run -- validate
 ```
 
+## Tests and coverage
+
+Run the test suite (fast, no extra tooling):
+
+```sh
+zig build test
+```
+
+Collect line and branch coverage with [kcov](https://github.com/SimonKagstrom/kcov) (requires LLVM-backed test binaries). On hosts without a `kcov` package (e.g. Ubuntu 24.04), use the Docker wrapper:
+
+```sh
+KCOV=./tools/kcov zig build coverage
+```
+
+Open `zig-out/coverage/index.html` for the HTML report. CI runs `zig build coverage` on every push and PR and publishes the report as a workflow artifact named **coverage-report** (download from the Actions run summary).
+
 ## CLI overview
 
 Invoke `fits` with a subcommand. If you omit the subcommand or pass an unknown one, the tool prints a short usage summary.
