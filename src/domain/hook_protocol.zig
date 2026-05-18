@@ -5,7 +5,7 @@ const std = @import("std");
 const validation = @import("validation.zig");
 
 /// Current hook request/response protocol version. Bump when JSON shape changes.
-pub const protocol_version: u32 = 2;
+pub const protocol_version: u32 = 1;
 
 /// Field reserved in schemas/docs for a future full-graph query API (hooks call the same model).
 pub const extension_graph_api_placeholder = "future: in-process or stdio RPC over graph_access API";
@@ -283,7 +283,7 @@ fn appendScopeFindings(
 test "hook response invalid node" {
     const alloc = std.testing.allocator;
     const body =
-        \\{"protocol_version":2,"nodes":[{"id":"O1","status":"invalid","errors":[{"code":"x","message":"bad"}]}]}
+        \\{"protocol_version":1,"nodes":[{"id":"O1","status":"invalid","errors":[{"code":"x","message":"bad"}]}]}
     ;
     var findings: std.ArrayListUnmanaged(validation.Finding) = .empty;
     defer {

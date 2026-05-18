@@ -4,7 +4,7 @@ Optional subprocess hooks can run after built-in structural validators during `f
 
 ## Protocol
 
-- **Version:** JSON schemas [`schemas/hooks_request.schema.json`](../schemas/hooks_request.schema.json) and [`schemas/hooks_response.schema.json`](../schemas/hooks_response.schema.json); domain constant `protocol_version = 2` in code.
+- **Version:** JSON schemas [`schemas/hooks_request.schema.json`](../schemas/hooks_request.schema.json) and [`schemas/hooks_response.schema.json`](../schemas/hooks_response.schema.json); domain constant `protocol_version` in [`hook_protocol.zig`](../src/domain/hook_protocol.zig) matches the schema `const`.
 - **Transport:** One batch per hook kind per validate run: a **nodes** hook (optional) and a **links** hook (optional). The request includes a **bounded subgraph** of the repo graph (see schemas), not the full graph.
 - **Terminology:** A graph **object** is either a **node** (dataset instance under type-scoped `nodes/…`) or a **link** (row in `links/links.jsonc`). The nodes hook validates node payloads; the links hook validates link rows.
 - **Extension point:** Schemas and docs reserve `extension_graph_api` for a future host-side graph query API (in-process or stdio RPC). Not available in the first delivery.

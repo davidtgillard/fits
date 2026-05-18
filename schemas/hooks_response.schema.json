@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fits.local/schemas/hooks_response.schema.json",
   "title": "fits hook response (stdout JSON)",
-  "description": "Hook stdout JSON for protocol version 2. Each array reports validation for graph objects of that kind (**nodes** or **links**).",
+  "description": "Hook stdout JSON. Each array reports validation for graph objects of that kind (**nodes** or **links**).",
   "type": "object",
   "additionalProperties": false,
   "required": ["protocol_version"],
   "properties": {
-    "protocol_version": { "type": "integer", "const": 2 },
+    "protocol_version": { "type": "integer", "const": 1 },
     "nodes": {
       "type": "array",
       "items": { "$ref": "#/$defs/itemResult" }

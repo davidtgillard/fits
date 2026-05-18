@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["protocol_version", "run", "registry", "graph", "work"],
   "properties": {
-    "protocol_version": { "type": "integer", "const": 2 },
+    "protocol_version": { "type": "integer", "const": 1 },
     "extension_graph_api": {
       "type": "string",
       "description": "Reserved: documents future optional full-graph API for hooks."

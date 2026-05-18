@@ -15,7 +15,7 @@ pub const SubgraphCaps = struct {
 
 /// Seeded by hook `work`: node ids and link endpoint ids to anchor the neighborhood.
 pub const SubgraphSeeds = struct {
-    /// Node instance ids (e.g. from `work.nodes` in hook protocol v2).
+    /// Node instance ids (e.g. from `work.nodes` in the hook request).
     node_ids: []const []const u8,
     /// Additional ids to treat as seeds (e.g. link `out` / `in` endpoints).
     extra_ids: []const []const u8,
