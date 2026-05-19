@@ -1,4 +1,5 @@
 const std = @import("std");
+const pkg = @import("build.zig.zon");
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
@@ -12,8 +13,11 @@ pub fn build(b: *std.Build) void {
 
     const enable_cli = b.option(bool, "cli", "Build legacy fits CLI executable") orelse false;
 
+    const api_version_packed: u32 = (@as(u32, pkg.abi_version_major) << 16) | pkg.abi_version_minor;
+
     const build_options = b.addOptions();
-    build_options.addOption([]const u8, "fits_version", "0.1.0");
+    build_options.addOption([]const u8, "fits_version", pkg.version);
+    build_options.addOption(u32, "fits_api_version_packed", api_version_packed);
     if (enable_cli) {
         build_options.addOption([]const u8, "git_commit", b.option([]const u8, "git_commit", "Embedded git commit") orelse "");
         build_options.addOption([]const u8, "github_owner", b.option([]const u8, "github_owner", "GitHub owner") orelse "davidtgillard");
@@ -39,7 +43,13 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_module,
     });
 
-    lib_opts.installHeader(b.path("include/fits_core.h"), "fits_core.h");
+    const fits_core_h = b.addConfigHeader(.{
+        .style = .{ .cmake = b.path("include/fits_core.h.in") },
+    }, .{
+        .FITS_API_VERSION_MAJOR = pkg.abi_version_major,
+        .FITS_API_VERSION_MINOR = pkg.abi_version_minor,
+    });
+    lib_opts.installHeader(fits_core_h.getOutputFile(), "fits_core.h");
     lib_opts.installHeader(b.path("include/libfits.h"), "libfits.h");
 
     b.installArtifact(lib_opts);
@@ -57,7 +67,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    abi_module.addIncludePath(fits_core_h.getOutputDir());
     abi_module.addIncludePath(b.path("include"));
+    abi_module.addImport("build_options", build_options.createModule());
     abi_module.linkLibrary(lib_opts);
 
     const abi_test_exe = b.addExecutable(.{

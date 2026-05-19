@@ -4,7 +4,7 @@ libfits exposes two C-compatible layers:
 
 | Header | Role |
 |--------|------|
-| [`include/fits_core.h`](../include/fits_core.h) | Struct-based core API (`FitsRepo`, `FitsValidateResult`, …) |
+| [`include/fits_core.h.in`](../include/fits_core.h.in) → `zig-out/include/fits_core.h` | Struct-based core API (`FitsRepo`, `FitsValidateResult`, …) |
 | [`include/libfits.h`](../include/libfits.h) | JSON request/response wrappers (`libfits_validate_json`, …) |
 
 JSON payloads are defined under [`schemas/abi/`](../schemas/abi/).
@@ -32,9 +32,11 @@ v0: use one `FitsRepo` per thread. Do not share handles across threads without e
 ## Versioning
 
 - `fits_api_version()` returns `(major << 16) | minor` for the **C struct layout**.
+- `FITS_API_VERSION_*` in `fits_core.h` is generated at build time from `abi_version_major` / `abi_version_minor` in [`build.zig.zon`](../build.zig.zon) (template: [`include/fits_core.h.in`](../include/fits_core.h.in)).
+- `fits_version_string()` returns the package `.version` field from the same manifest.
 - JSON bodies include `protocol_version` (currently `1`) for payload shape.
 
-Bump the API major version when any exported struct field order or meaning changes. Bump JSON `protocol_version` when request/response JSON changes.
+Bump `abi_version_major` when any exported struct field order or meaning changes; bump `abi_version_minor` for compatible additions. Bump JSON `protocol_version` when request/response JSON changes.
 
 ## Build artifacts
 

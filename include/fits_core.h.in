@@ -10,8 +10,8 @@ extern "C" {
 
 /* --- Version and memory --- */
 
-#define FITS_API_VERSION_MAJOR 0
-#define FITS_API_VERSION_MINOR 1
+#define FITS_API_VERSION_MAJOR @FITS_API_VERSION_MAJOR@
+#define FITS_API_VERSION_MINOR @FITS_API_VERSION_MINOR@
 #define FITS_API_VERSION_PACKED ((FITS_API_VERSION_MAJOR << 16) | FITS_API_VERSION_MINOR)
 
 uint32_t fits_api_version(void);

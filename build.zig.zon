@@ -2,6 +2,8 @@
     .name = .libfits,
     .fingerprint = 0xc667475481153c6c,
     .version = "0.1.0",
+    .abi_version_major = 0,
+    .abi_version_minor = 1,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},
     .paths = .{

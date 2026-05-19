@@ -10,7 +10,7 @@ pub const Status = enum(i32) {
     ok = 0,
     invalid_argument = -1,
     repo_not_found = -2,
-    @"registry" = -3,
+    registry = -3,
     links_invalid = -4,
     snapshot_mismatch = -5,
     unknown_id_prefix = -6,
@@ -64,7 +64,7 @@ pub fn mapError(err: anyerror) Status {
         error.PersonaSnapshotMismatch => .snapshot_mismatch,
         error.UnknownIdPrefix, error.UnknownObjPrefix => .unknown_id_prefix,
         error.PersonaSnapshotNotFound, error.FileNotFound => .repo_not_found,
-        error.PersonaSnapshotInvalid => .@"registry",
+        error.PersonaSnapshotInvalid => .registry,
         else => .internal,
     };
 }
@@ -74,7 +74,7 @@ pub fn statusMessage(status: Status) []const u8 {
         .ok => "ok",
         .invalid_argument => "invalid argument",
         .repo_not_found => "repository or snapshot not found",
-        .@"registry" => "registry error",
+        .registry => "registry error",
         .links_invalid => "links file invalid",
         .snapshot_mismatch => "registry snapshot mismatch",
         .unknown_id_prefix => "unknown id prefix",

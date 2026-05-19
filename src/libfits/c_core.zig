@@ -1,4 +1,4 @@
-//! C exports for [`fits_core.h`](../include/fits_core.h).
+//! C exports for [`fits_core.h`](../include/fits_core.h.in) (generated at build time).
 
 const std = @import("std");
 const build_options = @import("build_options");
@@ -17,12 +17,11 @@ const Status = c_errors.Status;
 const FitsRepo = repo_mod.FitsRepo;
 
 export fn fits_api_version() callconv(.c) u32 {
-    return 0x00010000;
+    return build_options.fits_api_version_packed;
 }
 
 export fn fits_version_string() callconv(.c) [*:0]const u8 {
-    _ = build_options;
-    return "0.1.0";
+    return build_options.fits_version[0.. :0].ptr;
 }
 
 export fn fits_free(ptr: ?*anyopaque) callconv(.c) void {

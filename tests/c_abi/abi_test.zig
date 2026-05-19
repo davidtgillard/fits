@@ -1,6 +1,7 @@
 //! ABI test executable linking libfits C API (core + JSON) via explicit extern declarations.
 
 const std = @import("std");
+const build_options = @import("build_options");
 
 const FitsRepo = opaque {};
 const FitsRepoOpenOptions = extern struct {
@@ -57,7 +58,7 @@ fn makeTmpDir(io: std.Io) !TmpDir {
 }
 
 fn runAbiTest(alloc: std.mem.Allocator, io: std.Io) !void {
-    if (fits_api_version() != 0x00010000) return error.ApiVersionMismatch;
+    if (fits_api_version() != build_options.fits_api_version_packed) return error.ApiVersionMismatch;
 
     var tmp = try makeTmpDir(io);
     defer tmp.cleanup(io);
