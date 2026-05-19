@@ -7,6 +7,7 @@ pub const ValidateOptions = @import("libfits/repo.zig").ValidateOptions;
 comptime {
     _ = @import("libfits/c_core.zig");
     _ = @import("libfits/c_json.zig");
+    _ = @import("libfits/c_schemas.zig");
 }
 
 test {
@@ -37,5 +38,6 @@ test {
     _ = @import("adapters/fs/registry_snapshot.zig");
     _ = @import("libfits/c_core.zig");
     _ = @import("libfits/c_json.zig");
+    _ = @import("libfits/c_schemas.zig");
     _ = @import("test/libfits_abi_functional.zig");
 }

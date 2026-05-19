@@ -17,6 +17,7 @@ const FITS_CORE_repo_close = @extern(*const fn (?*FitsRepo) callconv(.c) void, .
 const FITS_init = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "FITS_init" });
 const FITS_register_node_type = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "FITS_register_node_type" });
 const FITS_validate = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "FITS_validate" });
+const FITS_validate_request_schema = @extern(*const fn () callconv(.c) [*:0]const u8, .{ .name = "FITS_validate_request_schema" });
 
 pub fn main(init: std.process.Init) !void {
     try runAbiTest(init.gpa, init.io);
@@ -59,6 +60,12 @@ fn makeTmpDir(io: std.Io) !TmpDir {
 
 fn runAbiTest(alloc: std.mem.Allocator, io: std.Io) !void {
     if (FITS_api_version() != build_options.fits_api_version_packed) return error.ApiVersionMismatch;
+
+    const schema_text = std.mem.span(FITS_validate_request_schema());
+    if (schema_text.len == 0 or schema_text[0] != '{') return error.SchemaInvalid;
+    const schema_parsed = try std.json.parseFromSlice(std.json.Value, alloc, schema_text, .{});
+    defer schema_parsed.deinit();
+    if (schema_parsed.value != .object) return error.SchemaInvalid;
 
     var tmp = try makeTmpDir(io);
     defer tmp.cleanup(io);

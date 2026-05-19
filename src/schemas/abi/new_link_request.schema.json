@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "libfits new_link request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["link_type", "in_id", "out_id"],
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "link_type": { "type": "string" },
+    "in_id": { "type": "string" },
+    "out_id": { "type": "string" }
+  }
+}

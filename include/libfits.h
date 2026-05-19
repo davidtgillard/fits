@@ -229,6 +229,49 @@ FitsStatus FITS_register_node_type(FitsRepo *repo, const char *register_node_typ
  */
 FitsStatus FITS_register_link_type(FitsRepo *repo, const char *register_link_type_request_json, char **register_link_type_response_json);
 
+/**
+ * @defgroup abi_schemas JSON Schema accessors
+ * @{
+ * Each function returns the UTF-8 JSON Schema document for the corresponding
+ * `schemas/abi/*.schema.json` file. Storage is static (process lifetime); do not
+ * call FITS_free() on the returned pointer.
+ */
+
+/** @return Static JSON Schema for validate requests. */
+const char *FITS_validate_request_schema(void);
+
+/** @return Static JSON Schema for validate responses. */
+const char *FITS_validate_response_schema(void);
+
+/** @return Static JSON Schema for output_graph requests. */
+const char *FITS_output_graph_request_schema(void);
+
+/** @return Static JSON Schema for new_node requests. */
+const char *FITS_new_node_request_schema(void);
+
+/** @return Static JSON Schema for new_node responses. */
+const char *FITS_new_node_response_schema(void);
+
+/** @return Static JSON Schema for new_link requests. */
+const char *FITS_new_link_request_schema(void);
+
+/** @return Static JSON Schema for remove requests. */
+const char *FITS_remove_request_schema(void);
+
+/** @return Static JSON Schema for init requests. */
+const char *FITS_init_request_schema(void);
+
+/** @return Static JSON Schema for register_node_type requests. */
+const char *FITS_register_node_type_request_schema(void);
+
+/** @return Static JSON Schema for register_link_type requests. */
+const char *FITS_register_link_type_request_schema(void);
+
+/** @return Static JSON Schema for structured error responses. */
+const char *FITS_error_response_schema(void);
+
+/** @} */
+
 #ifdef __cplusplus
 }
 #endif

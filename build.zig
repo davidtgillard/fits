@@ -52,6 +52,13 @@ pub fn build(b: *std.Build) void {
     lib_opts.installHeader(fits_core_h.getOutputFile(), "fits_core.h");
     lib_opts.installHeader(b.path("include/libfits.h"), "libfits.h");
 
+    const install_abi_schemas = b.addInstallDirectory(.{
+        .source_dir = b.path("schemas/abi"),
+        .install_dir = .prefix,
+        .install_subdir = "schemas/abi",
+    });
+    b.getInstallStep().dependOn(&install_abi_schemas.step);
+
     b.installArtifact(lib_opts);
     b.installArtifact(shared_opts);
 

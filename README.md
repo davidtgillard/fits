@@ -22,6 +22,9 @@ Artifacts:
 | `zig-out/lib/libfits.so` | Shared library |
 | `zig-out/include/fits_core.h` | Struct-based C ABI |
 | `zig-out/include/libfits.h` | JSON-over-C ABI |
+| `zig-out/schemas/abi/*.schema.json` | JSON Schema for wire payloads |
+
+Schema text is also embedded in the library (`FITS_validate_request_schema()`, etc. in `libfits.h`).
 
 Optional legacy CLI (links this library):
 

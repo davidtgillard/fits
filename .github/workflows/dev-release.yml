@@ -42,4 +42,5 @@ jobs:
             zig-out/lib/libfits.so
             zig-out/include/fits_core.h
             zig-out/include/libfits.h
+            zig-out/schemas/abi/*.schema.json
             manifest.json

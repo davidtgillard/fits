@@ -56,5 +56,8 @@ Bump `abi_version_major` when any exported struct field order or meaning changes
 - `zig-out/lib/libfits.a` (static)
 - `zig-out/lib/libfits.so` (shared)
 - `zig-out/include/fits_core.h`, `libfits.h`
+- `zig-out/schemas/abi/*.schema.json` (JSON Schema documents for the wire API, installed from `schemas/abi/`)
+
+The same schema files are also available in-process via `FITS_*_schema()` accessors declared in `libfits.h` (for example `FITS_validate_request_schema()`). Returned pointers have static storage; do not call `FITS_free()` on them. The library embeds bytes from `src/schemas/abi/` (kept in sync with `schemas/abi/`).
 
 Optional CLI (legacy): `zig build -Dcli=true` installs the `fits` executable linked against the static library.
