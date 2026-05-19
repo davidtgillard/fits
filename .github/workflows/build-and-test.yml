@@ -27,7 +27,7 @@ jobs:
       - name: Build
         run: zig build
 
-      - name: ABI smoke tests
+      - name: ABI tests
         run: zig build abi-test
 
       - name: Pull kcov image

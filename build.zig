@@ -53,19 +53,19 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_unit_tests.step);
 
     const abi_module = b.createModule(.{
-        .root_source_file = b.path("tests/c_abi/validate_smoke.zig"),
+        .root_source_file = b.path("tests/c_abi/abi_test.zig"),
         .target = target,
         .optimize = optimize,
     });
     abi_module.addIncludePath(b.path("include"));
     abi_module.linkLibrary(lib_opts);
 
-    const abi_smoke = b.addTest(.{
-        .name = "libfits_abi_smoke",
+    const abi_test_exe = b.addExecutable(.{
+        .name = "libfits_abi_test",
         .root_module = abi_module,
     });
-    const run_abi = b.addRunArtifact(abi_smoke);
-    const abi_step = b.step("abi-test", "Run libfits C ABI smoke tests");
+    const run_abi = b.addRunArtifact(abi_test_exe);
+    const abi_step = b.step("abi-test", "Run libfits C ABI tests");
     abi_step.dependOn(&run_abi.step);
 
     if (enable_cli) {
