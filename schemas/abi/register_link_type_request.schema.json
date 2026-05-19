@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "libfits register_link_type request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["link_type", "in_type", "out_type"],
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "link_type": { "type": "string" },
+    "in_type": { "type": "string" },
+    "out_type": { "type": "string" },
+    "create_folder": { "type": "boolean", "default": false }
+  }
+}
