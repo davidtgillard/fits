@@ -17,17 +17,13 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
 
-      - name: Build release binary
+      - name: Build release libraries
         run: |
-          zig build -Doptimize=ReleaseSafe \
-            -Dcpu=x86_64 \
-            -Dgit_commit=${{ github.sha }} \
-            -Dgithub_owner=davidtgillard \
-            -Dgithub_repo=fits
+          zig build -Doptimize=ReleaseSafe -Dcpu=x86_64
 
       - name: Create manifest
         run: |
-          sha256=$(sha256sum zig-out/bin/fits | cut -d' ' -f1)
+          sha256=$(sha256sum zig-out/lib/libfits.a | cut -d' ' -f1)
           jq -n \
             --arg c "${{ github.sha }}" \
             --arg s "$sha256" \
@@ -42,5 +38,8 @@ jobs:
           make_latest: false
           fail_on_unmatched_files: true
           files: |
-            zig-out/bin/fits
+            zig-out/lib/libfits.a
+            zig-out/lib/libfits.so
+            zig-out/include/fits_core.h
+            zig-out/include/libfits.h
             manifest.json
