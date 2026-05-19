@@ -33,10 +33,10 @@ zig build -Dcli=true
 ## API layers
 
 1. **Zig** — [`src/libfits.zig`](src/libfits.zig): `FitsRepo` and methods (`validate`, `newNode`, …).
-2. **C core** — `zig-out/include/fits_core.h` (from [`include/fits_core.h.in`](include/fits_core.h.in)): structs and `fits_validate`, `fits_new_node`, …
-3. **JSON** — [`include/libfits.h`](include/libfits.h): `libfits_validate_json`, … (see [`docs/abi.md`](docs/abi.md) and [`schemas/abi/`](schemas/abi/)).
+2. **C core** — `zig-out/include/fits_core.h` (from [`include/fits_core.h.in`](include/fits_core.h.in)): structs and `FITS_CORE_validate`, `FITS_CORE_new_node`, …
+3. **JSON** — [`include/libfits.h`](include/libfits.h): `FITS_validate`, … (see [`docs/abi.md`](docs/abi.md) and [`schemas/abi/`](schemas/abi/)).
 
-Cross-boundary memory uses the C heap; free with `fits_free()`.
+Cross-boundary memory uses the C heap; free with `FITS_free()`.
 
 ## Tests
 

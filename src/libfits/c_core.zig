@@ -16,19 +16,19 @@ const Status = c_errors.Status;
 
 const FitsRepo = repo_mod.FitsRepo;
 
-export fn fits_api_version() callconv(.c) u32 {
+export fn FITS_api_version() callconv(.c) u32 {
     return build_options.fits_api_version_packed;
 }
 
-export fn fits_version_string() callconv(.c) [*:0]const u8 {
+export fn FITS_version_string() callconv(.c) [*:0]const u8 {
     return build_options.fits_version[0.. :0].ptr;
 }
 
-export fn fits_free(ptr: ?*anyopaque) callconv(.c) void {
+export fn FITS_free(ptr: ?*anyopaque) callconv(.c) void {
     c_alloc.freeCString(@ptrCast(ptr));
 }
 
-export fn fits_last_error() callconv(.c) [*:0]const u8 {
+export fn FITS_last_error() callconv(.c) [*:0]const u8 {
     return c_errors.lastErrorPtr() orelse "";
 }
 
@@ -127,7 +127,7 @@ fn failStatus(status: Status) Status {
     return status;
 }
 
-export fn fits_repo_open(options: ?*const CRepoOpenOptions) callconv(.c) ?*FitsRepo {
+export fn FITS_CORE_repo_open(options: ?*const CRepoOpenOptions) callconv(.c) ?*FitsRepo {
     c_errors.clearLastError();
     const opts = options orelse {
         _ = fail(.invalid_argument, "null options", .{});
@@ -145,17 +145,17 @@ export fn fits_repo_open(options: ?*const CRepoOpenOptions) callconv(.c) ?*FitsR
         .repo_root = root,
         .registry_snapshot_path = snap,
     }) catch |err| {
-        _ = fail(c_errors.mapError(err), "fits_repo_open: {s}", .{@errorName(err)});
+        _ = fail(c_errors.mapError(err), "FITS_CORE_repo_open: {s}", .{@errorName(err)});
         return null;
     };
     return repo;
 }
 
-export fn fits_repo_close(repo: ?*FitsRepo) callconv(.c) void {
+export fn FITS_CORE_repo_close(repo: ?*FitsRepo) callconv(.c) void {
     if (repo) |r| r.close();
 }
 
-export fn fits_repo_init(repo: ?*FitsRepo, options: ?*const CRepoInitOptions) callconv(.c) i32 {
+export fn FITS_CORE_repo_init(repo: ?*FitsRepo, options: ?*const CRepoInitOptions) callconv(.c) i32 {
     c_errors.clearLastError();
     const r = repo orelse return fail(.invalid_argument, "null repo", .{}).toInt();
     const opts = options orelse return fail(.invalid_argument, "null options", .{}).toInt();
@@ -170,7 +170,7 @@ export fn fits_repo_init(repo: ?*FitsRepo, options: ?*const CRepoInitOptions) ca
     return Status.ok.toInt();
 }
 
-export fn fits_registry_register_node_type(repo: ?*FitsRepo, options: ?*const CRegisterNodeTypeOptions) callconv(.c) i32 {
+export fn FITS_CORE_registry_register_node_type(repo: ?*FitsRepo, options: ?*const CRegisterNodeTypeOptions) callconv(.c) i32 {
     c_errors.clearLastError();
     const r = repo orelse return fail(.invalid_argument, "null repo", .{}).toInt();
     const opts = options orelse return fail(.invalid_argument, "null options", .{}).toInt();
@@ -187,7 +187,7 @@ export fn fits_registry_register_node_type(repo: ?*FitsRepo, options: ?*const CR
     return Status.ok.toInt();
 }
 
-export fn fits_registry_register_link_type(repo: ?*FitsRepo, options: ?*const CRegisterLinkTypeOptions) callconv(.c) i32 {
+export fn FITS_CORE_registry_register_link_type(repo: ?*FitsRepo, options: ?*const CRegisterLinkTypeOptions) callconv(.c) i32 {
     c_errors.clearLastError();
     const r = repo orelse return fail(.invalid_argument, "null repo", .{}).toInt();
     const opts = options orelse return fail(.invalid_argument, "null options", .{}).toInt();
@@ -200,14 +200,14 @@ export fn fits_registry_register_link_type(repo: ?*FitsRepo, options: ?*const CR
     return Status.ok.toInt();
 }
 
-export fn fits_registry_verify_snapshot(repo: ?*FitsRepo) callconv(.c) i32 {
+export fn FITS_CORE_registry_verify_snapshot(repo: ?*FitsRepo) callconv(.c) i32 {
     c_errors.clearLastError();
     const r = repo orelse return fail(.invalid_argument, "null repo", .{}).toInt();
     r.verifyRegistrySnapshot() catch |err| return fail(c_errors.mapError(err), "{s}", .{@errorName(err)}).toInt();
     return Status.ok.toInt();
 }
 
-export fn fits_new_node(repo: ?*FitsRepo, options: ?*const CNewNodeOptions, out_node_id: ?*?[*:0]u8) callconv(.c) i32 {
+export fn FITS_CORE_new_node(repo: ?*FitsRepo, options: ?*const CNewNodeOptions, out_node_id: ?*?[*:0]u8) callconv(.c) i32 {
     c_errors.clearLastError();
     const r = repo orelse return fail(.invalid_argument, "null repo", .{}).toInt();
     const out = out_node_id orelse return fail(.invalid_argument, "null out_node_id", .{}).toInt();
@@ -239,7 +239,7 @@ export fn fits_new_node(repo: ?*FitsRepo, options: ?*const CNewNodeOptions, out_
     return Status.ok.toInt();
 }
 
-export fn fits_new_link(repo: ?*FitsRepo, options: ?*const CNewLinkOptions) callconv(.c) i32 {
+export fn FITS_CORE_new_link(repo: ?*FitsRepo, options: ?*const CNewLinkOptions) callconv(.c) i32 {
     c_errors.clearLastError();
     const r = repo orelse return fail(.invalid_argument, "null repo", .{}).toInt();
     const opts = options orelse return fail(.invalid_argument, "null options", .{}).toInt();
@@ -252,7 +252,7 @@ export fn fits_new_link(repo: ?*FitsRepo, options: ?*const CNewLinkOptions) call
     return Status.ok.toInt();
 }
 
-export fn fits_remove(repo: ?*FitsRepo, object_id: ?[*:0]const u8) callconv(.c) i32 {
+export fn FITS_CORE_remove_obj(repo: ?*FitsRepo, object_id: ?[*:0]const u8) callconv(.c) i32 {
     c_errors.clearLastError();
     const r = repo orelse return fail(.invalid_argument, "null repo", .{}).toInt();
     const id = if (object_id) |p| std.mem.span(p) else return fail(.invalid_argument, "object_id required", .{}).toInt();
@@ -260,7 +260,7 @@ export fn fits_remove(repo: ?*FitsRepo, object_id: ?[*:0]const u8) callconv(.c) 
     return Status.ok.toInt();
 }
 
-export fn fits_validate(
+export fn FITS_CORE_validate(
     repo: ?*FitsRepo,
     options: ?*const CValidateOptions,
     out_result: ?*?*CFitsValidateResult,
@@ -354,7 +354,7 @@ fn freeCFindingsPartial(findings: []CFitsFinding, count: usize) void {
     }
 }
 
-export fn fits_validate_result_destroy(result: ?*CFitsValidateResult) callconv(.c) void {
+export fn FITS_CORE_validate_result_destroy(result: ?*CFitsValidateResult) callconv(.c) void {
     const res = result orelse return;
     if (res.findings) |base| {
         const slice = base[0..res.findings_len];

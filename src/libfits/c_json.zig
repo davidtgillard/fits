@@ -81,21 +81,21 @@ const ValidateRequest = struct {
     include_link_endpoints: ?bool = null,
 };
 
-export fn libfits_validate_json(
+export fn FITS_validate(
     repo: ?*FitsRepo,
-    request_json: ?[*:0]const u8,
-    response_json: ?*?[*:0]u8,
+    validate_request_json: ?[*:0]const u8,
+    validate_response_json: ?*?[*:0]u8,
 ) callconv(.c) i32 {
     c_errors.clearLastError();
-    const out = response_json orelse {
-        c_errors.setLastError("null response_json");
+    const out = validate_response_json orelse {
+        c_errors.setLastError("null validate_response_json");
         return Status.invalid_argument.toInt();
     };
     const r = repo orelse {
         out.* = writeErrorJson("null_repo", "null repo") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
     };
-    const req_str = if (request_json) |p| std.mem.span(p) else "{}";
+    const req_str = if (validate_request_json) |p| std.mem.span(p) else "{}";
 
     const parsed = std.json.parseFromSlice(ValidateRequest, c_allocator, req_str, .{
         .ignore_unknown_fields = true,
@@ -125,18 +125,18 @@ const InitRequest = struct {
     edit_gitignore: ?bool = null,
 };
 
-export fn libfits_init_json(
+export fn FITS_init(
     repo: ?*FitsRepo,
-    request_json: ?[*:0]const u8,
-    response_json: ?*?[*:0]u8,
+    init_request_json: ?[*:0]const u8,
+    init_response_json: ?*?[*:0]u8,
 ) callconv(.c) i32 {
     c_errors.clearLastError();
-    const out = response_json orelse return Status.invalid_argument.toInt();
+    const out = init_response_json orelse return Status.invalid_argument.toInt();
     const r = repo orelse {
         out.* = writeErrorJson("null_repo", "null repo") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
     };
-    const req_str = if (request_json) |p| std.mem.span(p) else "{}";
+    const req_str = if (init_request_json) |p| std.mem.span(p) else "{}";
     const parsed = std.json.parseFromSlice(InitRequest, c_allocator, req_str, .{ .ignore_unknown_fields = true }) catch {
         out.* = writeErrorJson("invalid_json", "parse failed") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
@@ -162,18 +162,18 @@ const NewNodeRequest = struct {
     title: ?[]const u8 = null,
 };
 
-export fn libfits_new_node_json(
+export fn FITS_new_node(
     repo: ?*FitsRepo,
-    request_json: ?[*:0]const u8,
-    response_json: ?*?[*:0]u8,
+    new_node_request_json: ?[*:0]const u8,
+    new_node_response_json: ?*?[*:0]u8,
 ) callconv(.c) i32 {
     c_errors.clearLastError();
-    const out = response_json orelse return Status.invalid_argument.toInt();
+    const out = new_node_response_json orelse return Status.invalid_argument.toInt();
     const r = repo orelse {
         out.* = writeErrorJson("null_repo", "null repo") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
     };
-    const req_str = if (request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
+    const req_str = if (new_node_request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
     const parsed = std.json.parseFromSlice(NewNodeRequest, c_allocator, req_str, .{}) catch {
         out.* = writeErrorJson("invalid_json", "parse failed") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
@@ -211,18 +211,18 @@ const NewLinkRequest = struct {
     out_id: []const u8,
 };
 
-export fn libfits_new_link_json(
+export fn FITS_new_link(
     repo: ?*FitsRepo,
-    request_json: ?[*:0]const u8,
-    response_json: ?*?[*:0]u8,
+    new_link_request_json: ?[*:0]const u8,
+    new_link_response_json: ?*?[*:0]u8,
 ) callconv(.c) i32 {
     c_errors.clearLastError();
-    const out = response_json orelse return Status.invalid_argument.toInt();
+    const out = new_link_response_json orelse return Status.invalid_argument.toInt();
     const r = repo orelse {
         out.* = writeErrorJson("null_repo", "null repo") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
     };
-    const req_str = if (request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
+    const req_str = if (new_link_request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
     const parsed = std.json.parseFromSlice(NewLinkRequest, c_allocator, req_str, .{}) catch {
         out.* = writeErrorJson("invalid_json", "parse failed") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
@@ -241,18 +241,18 @@ const RemoveRequest = struct {
     object_id: []const u8,
 };
 
-export fn libfits_remove_json(
+export fn FITS_remove_obj(
     repo: ?*FitsRepo,
-    request_json: ?[*:0]const u8,
-    response_json: ?*?[*:0]u8,
+    remove_request_json: ?[*:0]const u8,
+    remove_response_json: ?*?[*:0]u8,
 ) callconv(.c) i32 {
     c_errors.clearLastError();
-    const out = response_json orelse return Status.invalid_argument.toInt();
+    const out = remove_response_json orelse return Status.invalid_argument.toInt();
     const r = repo orelse {
         out.* = writeErrorJson("null_repo", "null repo") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
     };
-    const req_str = if (request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
+    const req_str = if (remove_request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
     const parsed = std.json.parseFromSlice(RemoveRequest, c_allocator, req_str, .{}) catch {
         out.* = writeErrorJson("invalid_json", "parse failed") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
@@ -274,18 +274,18 @@ const RegisterNodeTypeRequest = struct {
     create_folder: ?bool = null,
 };
 
-export fn libfits_register_node_type_json(
+export fn FITS_register_node_type(
     repo: ?*FitsRepo,
-    request_json: ?[*:0]const u8,
-    response_json: ?*?[*:0]u8,
+    register_node_type_request_json: ?[*:0]const u8,
+    register_node_type_response_json: ?*?[*:0]u8,
 ) callconv(.c) i32 {
     c_errors.clearLastError();
-    const out = response_json orelse return Status.invalid_argument.toInt();
+    const out = register_node_type_response_json orelse return Status.invalid_argument.toInt();
     const r = repo orelse {
         out.* = writeErrorJson("null_repo", "null repo") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
     };
-    const req_str = if (request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
+    const req_str = if (register_node_type_request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
     const parsed = std.json.parseFromSlice(RegisterNodeTypeRequest, c_allocator, req_str, .{}) catch {
         out.* = writeErrorJson("invalid_json", "parse failed") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
@@ -312,18 +312,18 @@ const RegisterLinkTypeRequest = struct {
     create_folder: ?bool = null,
 };
 
-export fn libfits_register_link_type_json(
+export fn FITS_register_link_type(
     repo: ?*FitsRepo,
-    request_json: ?[*:0]const u8,
-    response_json: ?*?[*:0]u8,
+    register_link_type_request_json: ?[*:0]const u8,
+    register_link_type_response_json: ?*?[*:0]u8,
 ) callconv(.c) i32 {
     c_errors.clearLastError();
-    const out = response_json orelse return Status.invalid_argument.toInt();
+    const out = register_link_type_response_json orelse return Status.invalid_argument.toInt();
     const r = repo orelse {
         out.* = writeErrorJson("null_repo", "null repo") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
     };
-    const req_str = if (request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
+    const req_str = if (register_link_type_request_json) |p| std.mem.span(p) else return Status.invalid_argument.toInt();
     const parsed = std.json.parseFromSlice(RegisterLinkTypeRequest, c_allocator, req_str, .{}) catch {
         out.* = writeErrorJson("invalid_json", "parse failed") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
@@ -347,18 +347,18 @@ const OutputGraphRequest = struct {
     pretty_print: ?bool = null,
 };
 
-export fn libfits_output_graph_json(
+export fn FITS_output_graph(
     repo: ?*FitsRepo,
-    request_json: ?[*:0]const u8,
-    response_json: ?*?[*:0]u8,
+    output_graph_request_json: ?[*:0]const u8,
+    output_graph_response_json: ?*?[*:0]u8,
 ) callconv(.c) i32 {
     c_errors.clearLastError();
-    const out = response_json orelse return Status.invalid_argument.toInt();
+    const out = output_graph_response_json orelse return Status.invalid_argument.toInt();
     const r = repo orelse {
         out.* = writeErrorJson("null_repo", "null repo") catch return Status.out_of_memory.toInt();
         return Status.invalid_argument.toInt();
     };
-    const req_str = if (request_json) |p| std.mem.span(p) else "{}";
+    const req_str = if (output_graph_request_json) |p| std.mem.span(p) else "{}";
     const parsed = std.json.parseFromSlice(OutputGraphRequest, c_allocator, req_str, .{
         .ignore_unknown_fields = true,
     }) catch {

@@ -4,22 +4,33 @@ libfits exposes two C-compatible layers:
 
 | Header | Role |
 |--------|------|
-| [`include/fits_core.h.in`](../include/fits_core.h.in) → `zig-out/include/fits_core.h` | Struct-based core API (`FitsRepo`, `FitsValidateResult`, …) |
-| [`include/libfits.h`](../include/libfits.h) | JSON request/response wrappers (`libfits_validate_json`, …) |
+| [`include/fits_core.h.in`](../include/fits_core.h.in) → `zig-out/include/fits_core.h` | Struct-based core API (`FITS_CORE_repo_open`, `FitsValidateResult`, …) |
+| [`include/libfits.h`](../include/libfits.h) | JSON request/response wrappers (`FITS_validate`, …) |
 
 JSON payloads are defined under [`schemas/abi/`](../schemas/abi/).
 
+## Naming
+
+Exported C symbols use a screaming prefix and lowercase snake_case tail:
+
+| Prefix | Role | Examples |
+|--------|------|----------|
+| `FITS_` | Shared helpers and JSON wire API | `FITS_free`, `FITS_validate`, `FITS_remove_obj` |
+| `FITS_CORE_` | Struct-based core API | `FITS_CORE_repo_open`, `FITS_CORE_validate`, `FITS_CORE_remove_obj` |
+
+Constants and macros use the `FITS_` prefix throughout (`FITS_OK`, `FITS_ERR_*`, …). Types remain PascalCase (`FitsRepo`, `FitsStatus`).
+
 ## Memory
 
-All pointers returned across the C boundary are allocated with the C heap (`malloc`). Free them with `fits_free()`.
+All pointers returned across the C boundary are allocated with the C heap (`malloc`). Free them with `FITS_free()`.
 
-`fits_validate_result_destroy()` frees a `FitsValidateResult` and all nested strings.
+`FITS_CORE_validate_result_destroy()` frees a `FitsValidateResult` and all nested strings.
 
 ## Errors
 
 - Core functions return `FitsStatus` (`0` = `FITS_OK`, negative = stable codes in `fits_core.h`).
-- After a failure, `fits_last_error()` may contain a short diagnostic (valid until the next libfits call on the same thread).
-- JSON functions always set `*response_json` to a non-null UTF-8 document: success shape or `{ "ok": false, "error": { "code", "message" } }`.
+- After a failure, `FITS_last_error()` may contain a short diagnostic (valid until the next libfits call on the same thread).
+- JSON functions always set each operation's `*_response_json` out pointer to a non-null UTF-8 document: success shape or `{ "ok": false, "error": { "code", "message" } }`.
 
 ## Struct versioning
 
@@ -31,9 +42,9 @@ v0: use one `FitsRepo` per thread. Do not share handles across threads without e
 
 ## Versioning
 
-- `fits_api_version()` returns `(major << 16) | minor` for the **C struct layout**.
+- `FITS_api_version()` returns `(major << 16) | minor` for the **C struct layout**.
 - `FITS_API_VERSION_*` in `fits_core.h` is generated at build time from `abi_version_major` / `abi_version_minor` in [`build.zig.zon`](../build.zig.zon) (template: [`include/fits_core.h.in`](../include/fits_core.h.in)).
-- `fits_version_string()` returns the package `.version` field from the same manifest.
+- `FITS_version_string()` returns the package `.version` field from the same manifest.
 - JSON bodies include `protocol_version` (currently `1`) for payload shape.
 
 Bump `abi_version_major` when any exported struct field order or meaning changes; bump `abi_version_minor` for compatible additions. Bump JSON `protocol_version` when request/response JSON changes.

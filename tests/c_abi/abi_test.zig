@@ -10,13 +10,13 @@ const FitsRepoOpenOptions = extern struct {
     registry_snapshot_path: ?[*:0]const u8,
 };
 
-const fits_api_version = @extern(*const fn () callconv(.c) u32, .{ .name = "fits_api_version" });
-const fits_free = @extern(*const fn (?*anyopaque) callconv(.c) void, .{ .name = "fits_free" });
-const fits_repo_open = @extern(*const fn (?*const FitsRepoOpenOptions) callconv(.c) ?*FitsRepo, .{ .name = "fits_repo_open" });
-const fits_repo_close = @extern(*const fn (?*FitsRepo) callconv(.c) void, .{ .name = "fits_repo_close" });
-const libfits_init_json = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "libfits_init_json" });
-const libfits_register_node_type_json = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "libfits_register_node_type_json" });
-const libfits_validate_json = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "libfits_validate_json" });
+const FITS_api_version = @extern(*const fn () callconv(.c) u32, .{ .name = "FITS_api_version" });
+const FITS_free = @extern(*const fn (?*anyopaque) callconv(.c) void, .{ .name = "FITS_free" });
+const FITS_CORE_repo_open = @extern(*const fn (?*const FitsRepoOpenOptions) callconv(.c) ?*FitsRepo, .{ .name = "FITS_CORE_repo_open" });
+const FITS_CORE_repo_close = @extern(*const fn (?*FitsRepo) callconv(.c) void, .{ .name = "FITS_CORE_repo_close" });
+const FITS_init = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "FITS_init" });
+const FITS_register_node_type = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "FITS_register_node_type" });
+const FITS_validate = @extern(*const fn (?*FitsRepo, ?[*:0]const u8, ?*?[*:0]u8) callconv(.c) i32, .{ .name = "FITS_validate" });
 
 pub fn main(init: std.process.Init) !void {
     try runAbiTest(init.gpa, init.io);
@@ -58,7 +58,7 @@ fn makeTmpDir(io: std.Io) !TmpDir {
 }
 
 fn runAbiTest(alloc: std.mem.Allocator, io: std.Io) !void {
-    if (fits_api_version() != build_options.fits_api_version_packed) return error.ApiVersionMismatch;
+    if (FITS_api_version() != build_options.fits_api_version_packed) return error.ApiVersionMismatch;
 
     var tmp = try makeTmpDir(io);
     defer tmp.cleanup(io);
@@ -72,39 +72,39 @@ fn runAbiTest(alloc: std.mem.Allocator, io: std.Io) !void {
         .repo_root = repo_abs.ptr,
         .registry_snapshot_path = null,
     };
-    const repo = fits_repo_open(&open_opts) orelse return error.RepoOpenFailed;
+    const repo = FITS_CORE_repo_open(&open_opts) orelse return error.RepoOpenFailed;
 
     const init_req = "{}";
     var init_resp: ?[*:0]u8 = null;
-    const init_st = libfits_init_json(repo, init_req.ptr, &init_resp);
+    const init_st = FITS_init(repo, init_req.ptr, &init_resp);
     if (init_st != 0) return error.InitFailed;
-    defer fits_free(init_resp);
+    defer FITS_free(init_resp);
 
     const reg_req =
         \\{"type_name":"req","abstract":true}
     ;
     var reg_resp: ?[*:0]u8 = null;
-    const reg_st = libfits_register_node_type_json(repo, reg_req.ptr, &reg_resp);
+    const reg_st = FITS_register_node_type(repo, reg_req.ptr, &reg_resp);
     if (reg_st != 0) return error.RegisterFailed;
-    defer fits_free(reg_resp);
+    defer FITS_free(reg_resp);
 
     const reg2_req =
         \\{"type_name":"REQ","extends":"req"}
     ;
     var reg2_resp: ?[*:0]u8 = null;
-    const reg2_st = libfits_register_node_type_json(repo, reg2_req.ptr, &reg2_resp);
+    const reg2_st = FITS_register_node_type(repo, reg2_req.ptr, &reg2_resp);
     if (reg2_st != 0) return error.RegisterFailed;
-    defer fits_free(reg2_resp);
+    defer FITS_free(reg2_resp);
 
     const val_req = "{\"include_link_endpoints\":true}";
     var val_resp: ?[*:0]u8 = null;
-    const val_st = libfits_validate_json(repo, val_req.ptr, &val_resp);
+    const val_st = FITS_validate(repo, val_req.ptr, &val_resp);
     if (val_st != 0) return error.ValidateFailed;
-    defer fits_free(val_resp);
+    defer FITS_free(val_resp);
 
     const body = std.mem.span(val_resp.?);
     if (std.mem.indexOf(u8, body, "\"ok\":true") == null) return error.ValidateResponseMissingOk;
     if (std.mem.indexOf(u8, body, "\"findings\"") == null) return error.ValidateResponseMissingFindings;
 
-    fits_repo_close(repo);
+    FITS_CORE_repo_close(repo);
 }
