@@ -43,11 +43,11 @@ extern "C" {
 #endif
 
 /**
- * @brief Validate the repository graph and return structured findings.
+ * @brief Validate the repository graph and return structured validation issues.
  *
  * Runs validation on the open repository and returns a report of info, warning,
- * and error findings. A successful call (`FITS_OK`) means validation completed;
- * individual findings may still report errors in the graph.
+ * and error validation issues. A successful call (`FITS_OK`) means validation completed;
+ * individual validation issues may still report errors in the graph.
  *
  * @param repo Open repository handle from FITS_CORE_repo_open(). Must not be NULL.
  * @param validate_request_json UTF-8 JSON request body, or NULL to use defaults (`{}`).
@@ -57,8 +57,8 @@ extern "C" {
  *        Schema: `schemas/abi/validate_request.schema.json`
  * @param validate_response_json Out pointer. On return, set to an allocated response
  *        document. Must not be NULL.
- *        Success shape: `{ "ok": true, "protocol_version": 1, "findings": [...],
- *        "summary": { "total_findings", "info_count", "warning_count",
+ *        Success shape: `{ "ok": true, "protocol_version": 2, "validation_issues": [...],
+ *        "summary": { "total_validation_issues", "info_count", "warning_count",
  *        "error_count" } }`.
  *        Schema: `schemas/abi/validate_response.schema.json`
  *        Caller frees with FITS_free().

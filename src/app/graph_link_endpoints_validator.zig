@@ -33,12 +33,12 @@ pub const GraphLinkEndpointsValidator = struct {
     ) anyerror!validation.ValidationResult {
         _ = context;
 
-        var list: std.ArrayList(validation.Finding) = .empty;
+        var list: std.ArrayList(validation.ValidationIssue) = .empty;
         defer list.deinit(allocator);
 
         const gv = input.graph_view orelse {
             const owned = try list.toOwnedSlice(allocator);
-            return .{ .validator_name = "graph.link_endpoints", .findings = owned };
+            return .{ .validator_name = "graph.link_endpoints", .issues = owned };
         };
 
         var nodes = std.StringHashMap(void).init(allocator);
@@ -67,6 +67,6 @@ pub const GraphLinkEndpointsValidator = struct {
         }
 
         const owned = try list.toOwnedSlice(allocator);
-        return .{ .validator_name = "graph.link_endpoints", .findings = owned };
+        return .{ .validator_name = "graph.link_endpoints", .issues = owned };
     }
 };

@@ -16,13 +16,13 @@ pub const registry_kind: []const u8 = "fits-registry";
 pub const registry_description: []const u8 =
     "Tracks registered node types (abstract and concrete), link types, numeric id counters, and tombstones. Do not edit by hand; use the fits CLI.";
 
-/// One validation finding with a JSON-pointer-like path and message.
+/// One structural validation issue with a JSON-pointer-like path and message.
 pub const ValidationIssue = struct {
     path: []const u8,
     message: []const u8,
 };
 
-/// Collected validation findings; caller must [`deinit`] when done.
+/// Collected structural validation issues; caller must [`deinit`] when done.
 pub const ValidationReport = struct {
     allocator: std.mem.Allocator,
     issues: std.ArrayList(ValidationIssue) = .empty,

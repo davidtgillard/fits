@@ -458,7 +458,7 @@ pub const LinkRowView = struct {
 /// Validates registry consistency for parsed link rows (after structural validation).
 ///
 /// Parameters:
-/// - `report`: Semantic findings appended here (caller may reuse structural report).
+/// - `report`: Semantic validation issues appended here (caller may reuse structural report).
 /// - `registry`: Loaded `.fits/registry.json`.
 /// - `rows`: Borrowed rows from the typed links parse.
 pub fn validateLinksAgainstRegistryRows(

@@ -161,41 +161,41 @@ typedef int32_t FitsStatus;
  */
 
 /**
- * @brief Severity level for a validation finding.
+ * @brief Severity level for a validation issue.
  */
 typedef int32_t FitsSeverity;
 
-/** @brief Informational finding; graph may still be valid. */
+/** @brief Informational validation issue; graph may still be valid. */
 #define FITS_SEVERITY_INFO 0
 
-/** @brief Warning finding; graph may still be usable. */
+/** @brief Warning validation issue; graph may still be usable. */
 #define FITS_SEVERITY_WARN 1
 
-/** @brief Error finding; graph integrity or policy violation. */
+/** @brief Error validation issue; graph integrity or policy violation. */
 #define FITS_SEVERITY_ERR 2
 
 /**
- * @brief A single validation finding.
+ * @brief A single validation issue.
  *
  * String fields are allocated by libfits. Freed when the owning FitsValidateResult
  * is destroyed with FITS_CORE_validate_result_destroy().
  */
-typedef struct FitsFinding {
-    /** Populated by libfits; equals `sizeof(FitsFinding)`. */
+typedef struct FitsValidationIssue {
+    /** Populated by libfits; equals `sizeof(FitsValidationIssue)`. */
     uint32_t struct_size;
 
-    /** Finding severity (`FITS_SEVERITY_INFO`, `FITS_SEVERITY_WARN`, or `FITS_SEVERITY_ERR`). */
+    /** Issue severity (`FITS_SEVERITY_INFO`, `FITS_SEVERITY_WARN`, or `FITS_SEVERITY_ERR`). */
     FitsSeverity severity;
 
-    /** Stable machine-readable finding code (UTF-8). */
+    /** Stable machine-readable issue code (UTF-8). */
     const char *code;
 
-    /** Human-readable finding message (UTF-8). */
+    /** Human-readable issue message (UTF-8). */
     const char *message;
 
     /** Related node or link id when applicable; otherwise NULL. */
     const char *object_id;
-} FitsFinding;
+} FitsValidationIssue;
 
 /**
  * @brief Aggregate counts for a validation report.
@@ -204,16 +204,16 @@ typedef struct FitsValidateSummary {
     /** Populated by libfits; equals `sizeof(FitsValidateSummary)`. */
     uint32_t struct_size;
 
-    /** Total number of findings in the report. */
-    size_t total_findings;
+    /** Total number of validation issues in the report. */
+    size_t total_validation_issues;
 
-    /** Count of findings with `FITS_SEVERITY_INFO`. */
+    /** Count of issues with `FITS_SEVERITY_INFO`. */
     size_t info_count;
 
-    /** Count of findings with `FITS_SEVERITY_WARN`. */
+    /** Count of issues with `FITS_SEVERITY_WARN`. */
     size_t warning_count;
 
-    /** Count of findings with `FITS_SEVERITY_ERR`. */
+    /** Count of issues with `FITS_SEVERITY_ERR`. */
     size_t error_count;
 } FitsValidateSummary;
 
@@ -226,13 +226,13 @@ typedef struct FitsValidateResult {
     /** Populated by libfits; equals `sizeof(FitsValidateResult)`. */
     uint32_t struct_size;
 
-    /** Array of findings; NULL when findings_len is zero. */
-    FitsFinding *findings;
+    /** Array of validation issues; NULL when issues_len is zero. */
+    FitsValidationIssue *issues;
 
-    /** Number of elements in findings. */
-    size_t findings_len;
+    /** Number of elements in issues. */
+    size_t issues_len;
 
-    /** Aggregate counts for findings. */
+    /** Aggregate counts for validation issues. */
     FitsValidateSummary summary;
 } FitsValidateResult;
 
@@ -500,9 +500,9 @@ FitsStatus FITS_CORE_new_link(FitsRepo *repo, const FitsNewLinkOptions *options)
 FitsStatus FITS_CORE_remove_obj(FitsRepo *repo, const char *object_id);
 
 /**
- * @brief Validates the repository graph and returns structured findings.
+ * @brief Validates the repository graph and returns structured validation issues.
  *
- * A successful return (`FITS_OK`) means validation completed; individual findings
+ * A successful return (`FITS_OK`) means validation completed; individual validation issues
  * may still report errors in the graph.
  *
  * @param repo Open repository handle. Must not be NULL.

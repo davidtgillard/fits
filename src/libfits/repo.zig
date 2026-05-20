@@ -313,10 +313,10 @@ const BuiltInValidator = struct {
     ) anyerror!validation.ValidationResult {
         _ = @as(*BuiltInValidator, @ptrCast(@alignCast(context)));
         _ = input;
-        const findings = try allocator.alloc(validation.Finding, 0);
+        const issues = try allocator.alloc(validation.ValidationIssue, 0);
         return .{
             .validator_name = "builtin.placeholder",
-            .findings = findings,
+            .issues = issues,
         };
     }
 };

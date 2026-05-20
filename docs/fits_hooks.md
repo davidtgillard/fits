@@ -61,10 +61,10 @@ Deletes all hook fingerprint cache entries (`hooks:*`), then runs hooks on the f
 
 ## Response mapping
 
-Hook stdout must be JSON matching `hooks_response.schema.json`. Invalid rows and protocol errors are turned into [`Finding`](../src/domain/validation.zig) records (for example `hook.io`, hook-specific codes). Nonzero exit status produces an error-level finding with stderr text.
+Hook stdout must be JSON matching `hooks_response.schema.json`. Invalid rows and protocol errors are turned into [`ValidationIssue`](../src/domain/validation.zig) records (for example `hook.io`, hook-specific codes). Nonzero exit status produces an error-level validation issue with stderr text.
 
 ## Failure modes
 
-- **Timeout / I/O:** Surfaced as host findings; stderr may be truncated.
-- **Malformed JSON:** Parse errors become findings; validate still completes.
-- **Request too large:** No subprocess run; a single finding describes the limit.
+- **Timeout / I/O:** Surfaced as host validation issues; stderr may be truncated.
+- **Malformed JSON:** Parse errors become validation issues; validate still completes.
+- **Request too large:** No subprocess run; a single validation issue describes the limit.

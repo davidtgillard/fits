@@ -7,16 +7,16 @@
   "required": ["ok"],
   "properties": {
     "ok": { "type": "boolean" },
-    "protocol_version": { "type": "integer", "const": 1 },
-    "findings": {
+    "protocol_version": { "type": "integer", "const": 2 },
+    "validation_issues": {
       "type": "array",
-      "items": { "$ref": "#/$defs/finding" }
+      "items": { "$ref": "#/$defs/validation_issue" }
     },
     "summary": { "$ref": "#/$defs/summary" },
     "error": { "$ref": "#/$defs/error" }
   },
   "$defs": {
-    "finding": {
+    "validation_issue": {
       "type": "object",
       "additionalProperties": false,
       "required": ["severity", "code", "message"],
@@ -30,9 +30,9 @@
     "summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["total_findings", "info_count", "warning_count", "error_count"],
+      "required": ["total_validation_issues", "info_count", "warning_count", "error_count"],
       "properties": {
-        "total_findings": { "type": "integer", "minimum": 0 },
+        "total_validation_issues": { "type": "integer", "minimum": 0 },
         "info_count": { "type": "integer", "minimum": 0 },
         "warning_count": { "type": "integer", "minimum": 0 },
         "error_count": { "type": "integer", "minimum": 0 }

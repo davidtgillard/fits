@@ -1,11 +1,11 @@
-//! Pure validation contracts: inputs, findings, and pluggable validators.
+//! Pure validation contracts: inputs, validation issues, and pluggable validators.
 //! Validators must not perform I/O; adapters run them on snapshots built from disk.
 
 const std = @import("std");
 const graph = @import("graph.zig");
 
-/// Severity of a single validation finding.
-pub const FindingSeverity = enum {
+/// Severity of a single validation issue.
+pub const ValidationIssueSeverity = enum {
     /// Informational message; does not indicate failure.
     info,
     /// Non-fatal issue (named `warn` because `warning` / `error` collide with Zig builtins).
@@ -15,14 +15,14 @@ pub const FindingSeverity = enum {
 };
 
 /// One issue reported by a validator.
-pub const Finding = struct {
-    /// How serious the finding is.
-    severity: FindingSeverity,
+pub const ValidationIssue = struct {
+    /// How serious the issue is.
+    severity: ValidationIssueSeverity,
     /// Short machine-oriented code (e.g. for CI or SARIF mapping later).
     code: []const u8,
     /// Human-readable explanation.
     message: []const u8,
-    /// Graph object (node or link instance) this finding refers to, if any.
+    /// Graph object (node or link instance) this issue refers to, if any.
     object_id: ?graph.NodeId = null,
 };
 
@@ -38,8 +38,8 @@ pub const ValidationInput = struct {
 pub const ValidationResult = struct {
     /// Which validator produced this result (stable name).
     validator_name: []const u8,
-    /// Findings allocated for this result; caller defines ownership contract.
-    findings: []const Finding,
+    /// Issues allocated for this result; caller defines ownership contract.
+    issues: []const ValidationIssue,
 };
 
 /// Type-erased validator implemented via vtable (in-process or future plugin host).
@@ -58,11 +58,11 @@ pub const Validator = struct {
         ///
         /// Returns: a NUL-terminated or slice-backed name valid for the validator's lifetime (implementation-defined).
         name: *const fn (context: *anyopaque) []const u8,
-        /// Runs validation; may allocate findings with `allocator`.
+        /// Runs validation; may allocate issues with `allocator`.
         ///
         /// Parameters:
         /// - `context`: Implementation state (`Validator.context`).
-        /// - `allocator`: Used to allocate `ValidationResult.findings` and any internal buffers.
+        /// - `allocator`: Used to allocate `ValidationResult.issues` and any internal buffers.
         /// - `input`: Bundle and optional graph view to validate.
         ///
         /// Returns: a [`ValidationResult`] on success, or an arbitrary error from the implementation.
@@ -87,7 +87,7 @@ pub const Validator = struct {
     ///
     /// Parameters:
     /// - `self`: Type-erased validator.
-    /// - `allocator`: Passed to the implementation for allocating findings.
+    /// - `allocator`: Passed to the implementation for allocating issues.
     /// - `input`: Bundle and optional graph to validate.
     ///
     /// Returns: a [`ValidationResult`] on success, or the same error as the underlying `validate` hook.

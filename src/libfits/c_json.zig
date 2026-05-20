@@ -37,7 +37,7 @@ fn writeOkOnlyJson() ![*:0]u8 {
     return valueToCString(.{ .object = o });
 }
 
-fn severityTag(s: validation.FindingSeverity) []const u8 {
+fn severityTag(s: validation.ValidationIssueSeverity) []const u8 {
     return switch (s) {
         .info => "info",
         .warn => "warn",
@@ -48,21 +48,21 @@ fn severityTag(s: validation.FindingSeverity) []const u8 {
 fn writeValidateSuccessJson(rep: report_mod.Report) ![*:0]u8 {
     var root: ObjectMap = .empty;
     try root.put(c_allocator, "ok", .{ .bool = true });
-    try root.put(c_allocator, "protocol_version", .{ .integer = 1 });
+    try root.put(c_allocator, "protocol_version", .{ .integer = 2 });
 
-    var findings_a = std.json.Array.init(c_allocator);
-    for (rep.findings) |f| {
-        var fo: ObjectMap = .empty;
-        try fo.put(c_allocator, "severity", .{ .string = severityTag(f.severity) });
-        try fo.put(c_allocator, "code", .{ .string = f.code });
-        try fo.put(c_allocator, "message", .{ .string = f.message });
-        if (f.object_id) |oid| try fo.put(c_allocator, "object_id", .{ .string = oid });
-        try findings_a.append(.{ .object = fo });
+    var issues_a = std.json.Array.init(c_allocator);
+    for (rep.issues) |issue| {
+        var io: ObjectMap = .empty;
+        try io.put(c_allocator, "severity", .{ .string = severityTag(issue.severity) });
+        try io.put(c_allocator, "code", .{ .string = issue.code });
+        try io.put(c_allocator, "message", .{ .string = issue.message });
+        if (issue.object_id) |oid| try io.put(c_allocator, "object_id", .{ .string = oid });
+        try issues_a.append(.{ .object = io });
     }
-    try root.put(c_allocator, "findings", .{ .array = findings_a });
+    try root.put(c_allocator, "validation_issues", .{ .array = issues_a });
 
     var summary: ObjectMap = .empty;
-    try summary.put(c_allocator, "total_findings", .{ .integer = @intCast(rep.summary.total_findings) });
+    try summary.put(c_allocator, "total_validation_issues", .{ .integer = @intCast(rep.summary.total_validation_issues) });
     try summary.put(c_allocator, "info_count", .{ .integer = @intCast(rep.summary.info_count) });
     try summary.put(c_allocator, "warning_count", .{ .integer = @intCast(rep.summary.warning_count) });
     try summary.put(c_allocator, "error_count", .{ .integer = @intCast(rep.summary.error_count) });
@@ -111,8 +111,8 @@ export fn FITS_validate(
         return c_errors.mapError(err).toInt();
     };
     defer {
-        for (rep.findings) |f| r.allocator.free(f.message);
-        r.allocator.free(rep.findings);
+        for (rep.issues) |issue| r.allocator.free(issue.message);
+        r.allocator.free(rep.issues);
     }
 
     out.* = writeValidateSuccessJson(rep) catch return Status.out_of_memory.toInt();

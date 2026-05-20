@@ -80,7 +80,7 @@ const CRepoInitOptions = extern struct {
     edit_gitignore: i32,
 };
 
-const CFitsFinding = extern struct {
+const CFitsValidationIssue = extern struct {
     struct_size: u32,
     severity: i32,
     code: ?[*:0]const u8,
@@ -90,7 +90,7 @@ const CFitsFinding = extern struct {
 
 const CFitsValidateSummary = extern struct {
     struct_size: u32,
-    total_findings: usize,
+    total_validation_issues: usize,
     info_count: usize,
     warning_count: usize,
     error_count: usize,
@@ -98,8 +98,8 @@ const CFitsValidateSummary = extern struct {
 
 const CFitsValidateResult = extern struct {
     struct_size: u32,
-    findings: ?[*]CFitsFinding,
-    findings_len: usize,
+    issues: ?[*]CFitsValidationIssue,
+    issues_len: usize,
     summary: CFitsValidateSummary,
 };
 
@@ -109,7 +109,7 @@ fn defaultIo() std.Io {
     return g_io.io();
 }
 
-fn severityToC(s: validation.FindingSeverity) i32 {
+fn severityToC(s: validation.ValidationIssueSeverity) i32 {
     return switch (s) {
         .info => 0,
         .warn => 1,
@@ -279,46 +279,46 @@ export fn FITS_CORE_validate(
     const rep = r.validate(.{ .include_link_endpoints = include_link }) catch |err| {
         return fail(c_errors.mapError(err), "{s}", .{@errorName(err)}).toInt();
     };
-    defer freeReportFindings(r.allocator, rep);
+    defer freeReportIssues(r.allocator, rep);
 
     const c_result = c_allocator.create(CFitsValidateResult) catch return failStatus(.out_of_memory).toInt();
     errdefer c_allocator.destroy(c_result);
 
-    const findings = c_allocator.alloc(CFitsFinding, rep.findings.len) catch {
+    const issues = c_allocator.alloc(CFitsValidationIssue, rep.issues.len) catch {
         c_allocator.destroy(c_result);
         return failStatus(.out_of_memory).toInt();
     };
-    errdefer c_allocator.free(findings);
+    errdefer c_allocator.free(issues);
 
-    for (rep.findings, 0..) |f, i| {
-        const code = c_alloc.allocCString(f.code) catch {
-            freeCFindingsPartial(findings, i);
-            c_allocator.free(findings);
+    for (rep.issues, 0..) |issue, i| {
+        const code = c_alloc.allocCString(issue.code) catch {
+            freeCValidationIssuesPartial(issues, i);
+            c_allocator.free(issues);
             c_allocator.destroy(c_result);
             return failStatus(.out_of_memory).toInt();
         };
-        const message = c_alloc.allocCString(f.message) catch {
+        const message = c_alloc.allocCString(issue.message) catch {
             c_alloc.freeCString(code);
-            freeCFindingsPartial(findings, i);
-            c_allocator.free(findings);
+            freeCValidationIssuesPartial(issues, i);
+            c_allocator.free(issues);
             c_allocator.destroy(c_result);
             return failStatus(.out_of_memory).toInt();
         };
-        const object_id: ?[*:0]const u8 = if (f.object_id) |oid|
+        const object_id: ?[*:0]const u8 = if (issue.object_id) |oid|
             c_alloc.allocCString(oid) catch {
                 c_alloc.freeCString(message);
                 c_alloc.freeCString(code);
-                freeCFindingsPartial(findings, i);
-                c_allocator.free(findings);
+                freeCValidationIssuesPartial(issues, i);
+                c_allocator.free(issues);
                 c_allocator.destroy(c_result);
                 return failStatus(.out_of_memory).toInt();
             }
         else
             null;
 
-        findings[i] = .{
-            .struct_size = @sizeOf(CFitsFinding),
-            .severity = severityToC(f.severity),
+        issues[i] = .{
+            .struct_size = @sizeOf(CFitsValidationIssue),
+            .severity = severityToC(issue.severity),
             .code = code,
             .message = message,
             .object_id = object_id,
@@ -327,11 +327,11 @@ export fn FITS_CORE_validate(
 
     c_result.* = .{
         .struct_size = @sizeOf(CFitsValidateResult),
-        .findings = if (findings.len > 0) findings.ptr else null,
-        .findings_len = findings.len,
+        .issues = if (issues.len > 0) issues.ptr else null,
+        .issues_len = issues.len,
         .summary = .{
             .struct_size = @sizeOf(CFitsValidateSummary),
-            .total_findings = rep.summary.total_findings,
+            .total_validation_issues = rep.summary.total_validation_issues,
             .info_count = rep.summary.info_count,
             .warning_count = rep.summary.warning_count,
             .error_count = rep.summary.error_count,
@@ -341,24 +341,24 @@ export fn FITS_CORE_validate(
     return Status.ok.toInt();
 }
 
-fn freeReportFindings(allocator: std.mem.Allocator, rep: report_mod.Report) void {
-    for (rep.findings) |f| allocator.free(f.message);
-    allocator.free(rep.findings);
+fn freeReportIssues(allocator: std.mem.Allocator, rep: report_mod.Report) void {
+    for (rep.issues) |issue| allocator.free(issue.message);
+    allocator.free(rep.issues);
 }
 
-fn freeCFindingsPartial(findings: []CFitsFinding, count: usize) void {
-    for (findings[0..count]) |f| {
-        c_alloc.freeCString(f.code);
-        c_alloc.freeCString(f.message);
-        c_alloc.freeCString(f.object_id);
+fn freeCValidationIssuesPartial(issues: []CFitsValidationIssue, count: usize) void {
+    for (issues[0..count]) |issue| {
+        c_alloc.freeCString(issue.code);
+        c_alloc.freeCString(issue.message);
+        c_alloc.freeCString(issue.object_id);
     }
 }
 
 export fn FITS_CORE_validate_result_destroy(result: ?*CFitsValidateResult) callconv(.c) void {
     const res = result orelse return;
-    if (res.findings) |base| {
-        const slice = base[0..res.findings_len];
-        freeCFindingsPartial(slice, slice.len);
+    if (res.issues) |base| {
+        const slice = base[0..res.issues_len];
+        freeCValidationIssuesPartial(slice, slice.len);
         c_allocator.free(slice);
     }
     c_allocator.destroy(res);

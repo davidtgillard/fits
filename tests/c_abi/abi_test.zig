@@ -111,7 +111,7 @@ fn runAbiTest(alloc: std.mem.Allocator, io: std.Io) !void {
 
     const body = std.mem.span(val_resp.?);
     if (std.mem.indexOf(u8, body, "\"ok\":true") == null) return error.ValidateResponseMissingOk;
-    if (std.mem.indexOf(u8, body, "\"findings\"") == null) return error.ValidateResponseMissingFindings;
+    if (std.mem.indexOf(u8, body, "\"validation_issues\"") == null) return error.ValidateResponseMissingIssues;
 
     FITS_CORE_repo_close(repo);
 }

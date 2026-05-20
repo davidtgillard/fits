@@ -25,8 +25,8 @@ test "FitsRepo validate empty initialized repo" {
 
     const rep = try repo.validate(.{});
     defer {
-        for (rep.findings) |f| alloc.free(f.message);
-        alloc.free(rep.findings);
+        for (rep.issues) |issue| alloc.free(issue.message);
+        alloc.free(rep.issues);
     }
     try std.testing.expectEqual(@as(usize, 0), rep.summary.error_count);
 }
