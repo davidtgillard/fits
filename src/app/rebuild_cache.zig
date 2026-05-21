@@ -25,12 +25,12 @@ const Io = std.Io;
 ///
 /// Parameters:
 /// - `resolved`: Active persona (registry guard and hook argv resolution).
-/// - `allocator`: Allocator for loads and findings.
+/// - `allocator`: Allocator for loads and validation issues.
 /// - `io`: Filesystem I/O handle.
 /// - `environ`: Process environment (`HOME` for global cache fallback).
 ///
 /// Returns: void when the cache was cleared and hook output was rendered.
-/// On failure: registry/links load errors, cache I/O, or hook subprocess errors propagated as findings then normal exit.
+/// On failure: registry/links load errors, cache I/O, or hook subprocess errors propagated as validation issues then normal exit.
 pub fn run(
     resolved: *const ResolvedPersona,
     allocator: std.mem.Allocator,
@@ -109,7 +109,7 @@ pub fn run(
     const git_head_opt = tryGitHead(allocator, io, ".");
     defer if (git_head_opt) |h| allocator.free(h);
 
-    const hook_findings = try hooks_validate_mod.runHooks(
+    const hook_issues = try hooks_validate_mod.runHooks(
         allocator,
         io,
         ".",
@@ -125,13 +125,13 @@ pub fn run(
         git_head_opt,
     );
     defer {
-        for (hook_findings) |f| allocator.free(f.message);
-        allocator.free(hook_findings);
+        for (hook_issues) |f| allocator.free(f.message);
+        allocator.free(hook_issues);
     }
 
     const final_report = report_mod.Report{
-        .findings = hook_findings,
-        .summary = report_mod.summarize(hook_findings),
+        .issues = hook_issues,
+        .summary = report_mod.summarize(hook_issues),
     };
 
     var renderer = report_mod.TextRenderer{};

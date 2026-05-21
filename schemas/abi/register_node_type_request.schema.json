@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "libfits register_node_type request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type_name"],
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "type_name": { "type": "string" },
+    "abstract": { "type": "boolean", "default": false },
+    "extends": { "type": "string" },
+    "create_folder": { "type": "boolean", "default": false }
+  }
+}

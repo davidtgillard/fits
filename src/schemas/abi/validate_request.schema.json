@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fits.local/schemas/abi/validate_request.schema.json",
+  "title": "libfits validate request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "include_link_endpoints": { "type": "boolean", "default": true }
+  }
+}

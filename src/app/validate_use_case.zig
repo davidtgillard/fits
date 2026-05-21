@@ -9,7 +9,7 @@ const cache = @import("../adapters/cache/fits_cache.zig");
 
 /// Runs validation over prepared bundles using a graph builder and validator set.
 pub const ValidateUseCase = struct {
-    /// Allocator for graph and finding aggregation.
+    /// Allocator for graph and validation issue aggregation.
     allocator: std.mem.Allocator,
     /// Produces the graph snapshot passed into validators.
     graph_builder: graph_builder.GraphBuilder,
@@ -25,7 +25,7 @@ pub const ValidateUseCase = struct {
     /// - `bundles`: Node bundles to validate; each is validated with the same built graph snapshot.
     /// - `link_edges`: Registered links (`OUT`→`IN`) to materialize as graph edges.
     ///
-    /// Returns: a [`report.Report`] whose `findings` slice is owned by the caller and must be freed with `self.allocator`.
+    /// Returns: a [`report.Report`] whose `issues` slice is owned by the caller and must be freed with `self.allocator`.
     /// On failure: allocator errors, graph build errors, or any validator error.
     pub fn execute(
         self: ValidateUseCase,
@@ -36,8 +36,8 @@ pub const ValidateUseCase = struct {
         defer snapshot.deinit(self.allocator);
 
         const validators = self.validator_registry.list();
-        var findings: std.ArrayList(validation.Finding) = .empty;
-        defer findings.deinit(self.allocator);
+        var issues: std.ArrayList(validation.ValidationIssue) = .empty;
+        defer issues.deinit(self.allocator);
 
         for (bundles) |bundle| {
             const input = validation.ValidationInput{
@@ -46,18 +46,18 @@ pub const ValidateUseCase = struct {
             };
             for (validators) |validator| {
                 const result = try validator.validate(self.allocator, input);
-                defer self.allocator.free(result.findings);
-                try findings.appendSlice(self.allocator, result.findings);
+                defer self.allocator.free(result.issues);
+                try issues.appendSlice(self.allocator, result.issues);
             }
         }
 
         // Reserved for cache read/write once keys and invalidation are defined.
         _ = self.cache_store;
 
-        const owned_findings = try findings.toOwnedSlice(self.allocator);
+        const owned_issues = try issues.toOwnedSlice(self.allocator);
         return .{
-            .findings = owned_findings,
-            .summary = report.summarize(owned_findings),
+            .issues = owned_issues,
+            .summary = report.summarize(owned_issues),
         };
     }
 };

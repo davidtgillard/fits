@@ -1,16 +1,19 @@
 .{
-    .name = .fits,
-    .fingerprint = 0xfa501b187583195c,
+    .name = .libfits,
+    .fingerprint = 0xc667475481153c6c,
     .version = "0.1.0",
+    .abi_version_major = 0,
+    .abi_version_minor = 2,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "include",
         "schemas",
         "docs",
-        "fits.zon",
+        "tests",
         "tools",
     },
 }

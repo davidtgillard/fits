@@ -1,4 +1,4 @@
-//! JSON hook protocol types and mapping hook output to [`validation.Finding`](validation.zig).
+//! JSON hook protocol types and mapping hook output to [`validation.ValidationIssue`](validation.zig).
 //! Hooks are subprocesses: stdin request JSON, stdout response JSON; no I/O inside the hook.
 
 const std = @import("std");
@@ -68,22 +68,22 @@ pub const HookGraphEdgeJson = struct {
     link_type: []const u8,
 };
 
-/// Allocates a single finding for hook I/O or protocol errors.
+/// Allocates a single validation issue for hook I/O or protocol errors.
 ///
 /// Parameters:
-/// - `allocator`: Owns duplicated `message` in the returned finding.
+/// - `allocator`: Owns duplicated `message` in the returned issue.
 /// - `hook_name`: Short hook label for the prefix.
 /// - `detail`: Problem description (stderr tail, parse error, etc.).
 ///
-/// Returns: a single-element slice the caller must free (each finding’s `message` with `allocator.free`).
-pub fn findingsFromHookIoFailure(
+/// Returns: a single-element slice the caller must free (each issue’s `message` with `allocator.free`).
+pub fn validationIssuesFromHookIoFailure(
     allocator: std.mem.Allocator,
     hook_name: []const u8,
     detail: []const u8,
-) ![]validation.Finding {
+) ![]validation.ValidationIssue {
     const msg = try std.fmt.allocPrint(allocator, "hook {s}: {s}", .{ hook_name, detail });
     errdefer allocator.free(msg);
-    const out = try allocator.alloc(validation.Finding, 1);
+    const out = try allocator.alloc(validation.ValidationIssue, 1);
     out[0] = .{
         .severity = .err,
         .code = "hook.io",
@@ -93,32 +93,32 @@ pub fn findingsFromHookIoFailure(
     return out;
 }
 
-fn freeFindingMessages(allocator: std.mem.Allocator, findings: []validation.Finding) void {
-    for (findings) |f| allocator.free(f.message);
+fn freeValidationIssueMessages(allocator: std.mem.Allocator, issues: []validation.ValidationIssue) void {
+    for (issues) |f| allocator.free(f.message);
 }
 
-/// Parses hook stdout JSON and appends [`validation.Finding`] for each invalid item or protocol mismatch.
+/// Parses hook stdout JSON and appends [`validation.ValidationIssue`] for each invalid item or protocol mismatch.
 ///
 /// Parameters:
-/// - `allocator`: Allocates appended findings and duplicated strings.
+/// - `allocator`: Allocates appended issues and duplicated strings.
 /// - `response_body`: Raw UTF-8 JSON from the hook stdout.
 /// - `hook_name`: Label used in diagnostic messages.
-/// - `findings`: Receives appended items on success.
+/// - `issues`: Receives appended items on success.
 ///
-/// Returns: nothing on success. Malformed JSON or version mismatch only append diagnostic findings (no error return); allocation failure propagates.
-pub fn appendFindingsFromHookResponseJson(
+/// Returns: nothing on success. Malformed JSON or version mismatch only append diagnostic issues (no error return); allocation failure propagates.
+pub fn appendValidationIssuesFromHookResponseJson(
     allocator: std.mem.Allocator,
     response_body: []const u8,
     hook_name: []const u8,
-    findings: *std.ArrayListUnmanaged(validation.Finding),
+    issues: *std.ArrayListUnmanaged(validation.ValidationIssue),
 ) !void {
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, response_body, .{ .allocate = .alloc_always }) catch |err| {
         const detail = try std.fmt.allocPrint(allocator, "parse error: {any}", .{err});
         defer allocator.free(detail);
-        const batch = try findingsFromHookIoFailure(allocator, hook_name, detail);
-        defer freeFindingMessages(allocator, batch);
+        const batch = try validationIssuesFromHookIoFailure(allocator, hook_name, detail);
+        defer freeValidationIssueMessages(allocator, batch);
         defer allocator.free(batch);
-        try findings.appendSlice(allocator, batch);
+        try issues.appendSlice(allocator, batch);
         return;
     };
     defer parsed.deinit();
@@ -127,63 +127,63 @@ pub fn appendFindingsFromHookResponseJson(
     const obj = switch (root) {
         .object => |o| o,
         else => {
-            const batch = try findingsFromHookIoFailure(allocator, hook_name, "expected JSON object at top level");
-            defer freeFindingMessages(allocator, batch);
+            const batch = try validationIssuesFromHookIoFailure(allocator, hook_name, "expected JSON object at top level");
+            defer freeValidationIssueMessages(allocator, batch);
             defer allocator.free(batch);
-            try findings.appendSlice(allocator, batch);
+            try issues.appendSlice(allocator, batch);
             return;
         },
     };
 
     const pv = obj.get("protocol_version") orelse {
-        const batch = try findingsFromHookIoFailure(allocator, hook_name, "missing protocol_version");
-        defer freeFindingMessages(allocator, batch);
+        const batch = try validationIssuesFromHookIoFailure(allocator, hook_name, "missing protocol_version");
+        defer freeValidationIssueMessages(allocator, batch);
         defer allocator.free(batch);
-        try findings.appendSlice(allocator, batch);
+        try issues.appendSlice(allocator, batch);
         return;
     };
     const ver: u32 = switch (pv) {
         .integer => |i| if (i < 0) {
-            const batch = try findingsFromHookIoFailure(allocator, hook_name, "invalid protocol_version");
-            defer freeFindingMessages(allocator, batch);
+            const batch = try validationIssuesFromHookIoFailure(allocator, hook_name, "invalid protocol_version");
+            defer freeValidationIssueMessages(allocator, batch);
             defer allocator.free(batch);
-            try findings.appendSlice(allocator, batch);
+            try issues.appendSlice(allocator, batch);
             return;
         } else @intCast(i),
         else => {
-            const batch = try findingsFromHookIoFailure(allocator, hook_name, "invalid protocol_version type");
-            defer freeFindingMessages(allocator, batch);
+            const batch = try validationIssuesFromHookIoFailure(allocator, hook_name, "invalid protocol_version type");
+            defer freeValidationIssueMessages(allocator, batch);
             defer allocator.free(batch);
-            try findings.appendSlice(allocator, batch);
+            try issues.appendSlice(allocator, batch);
             return;
         },
     };
     if (ver != protocol_version) {
         const detail = try std.fmt.allocPrint(allocator, "unsupported protocol_version {d}", .{ver});
         defer allocator.free(detail);
-        const batch = try findingsFromHookIoFailure(allocator, hook_name, detail);
-        defer freeFindingMessages(allocator, batch);
+        const batch = try validationIssuesFromHookIoFailure(allocator, hook_name, detail);
+        defer freeValidationIssueMessages(allocator, batch);
         defer allocator.free(batch);
-        try findings.appendSlice(allocator, batch);
+        try issues.appendSlice(allocator, batch);
         return;
     }
 
     if (obj.get("nodes")) |nv| {
-        try appendScopeFindings(allocator, .node, nv, "hook.node.invalid", findings);
+        try appendScopeValidationIssues(allocator, .node, nv, "hook.node.invalid", issues);
     }
     if (obj.get("links")) |lv| {
-        try appendScopeFindings(allocator, .link, lv, "hook.link.invalid", findings);
+        try appendScopeValidationIssues(allocator, .link, lv, "hook.link.invalid", issues);
     }
 }
 
 const Scope = enum { node, link };
 
-fn appendScopeFindings(
+fn appendScopeValidationIssues(
     allocator: std.mem.Allocator,
     scope: Scope,
     value: std.json.Value,
     code_invalid: []const u8,
-    findings: *std.ArrayListUnmanaged(validation.Finding),
+    issues: *std.ArrayListUnmanaged(validation.ValidationIssue),
 ) !void {
     const arr = switch (value) {
         .array => |a| a,
@@ -209,7 +209,7 @@ fn appendScopeFindings(
         if (!std.mem.eql(u8, status, "invalid")) {
             const msg = try std.fmt.allocPrint(allocator, "hook item {s}: unknown status {s}", .{ id, status });
             errdefer allocator.free(msg);
-            try findings.append(allocator, .{
+            try issues.append(allocator, .{
                 .severity = .err,
                 .code = "hook.protocol",
                 .message = msg,
@@ -224,7 +224,7 @@ fn appendScopeFindings(
                 .link => try std.fmt.allocPrint(allocator, "hook link {s}: invalid but errors missing", .{id}),
             };
             errdefer allocator.free(msg);
-            try findings.append(allocator, .{
+            try issues.append(allocator, .{
                 .severity = .err,
                 .code = code_invalid,
                 .message = msg,
@@ -240,7 +240,7 @@ fn appendScopeFindings(
                     .link => try std.fmt.allocPrint(allocator, "hook link {s}: errors not an array", .{id}),
                 };
                 errdefer allocator.free(msg);
-                try findings.append(allocator, .{
+                try issues.append(allocator, .{
                     .severity = .err,
                     .code = code_invalid,
                     .message = msg,
@@ -270,7 +270,7 @@ fn appendScopeFindings(
                 .link => try std.fmt.allocPrint(allocator, "link {s} [{s}]: {s}", .{ id, code, base }),
             };
             errdefer allocator.free(msg);
-            try findings.append(allocator, .{
+            try issues.append(allocator, .{
                 .severity = .err,
                 .code = code_invalid,
                 .message = msg,
@@ -285,12 +285,12 @@ test "hook response invalid node" {
     const body =
         \\{"protocol_version":1,"nodes":[{"id":"O1","status":"invalid","errors":[{"code":"x","message":"bad"}]}]}
     ;
-    var findings: std.ArrayListUnmanaged(validation.Finding) = .empty;
+    var issues: std.ArrayListUnmanaged(validation.ValidationIssue) = .empty;
     defer {
-        for (findings.items) |f| alloc.free(f.message);
-        findings.deinit(alloc);
+        for (issues.items) |f| alloc.free(f.message);
+        issues.deinit(alloc);
     }
-    try appendFindingsFromHookResponseJson(alloc, body, "testhook", &findings);
-    try std.testing.expectEqual(@as(usize, 1), findings.items.len);
-    try std.testing.expectEqualStrings("hook.node.invalid", findings.items[0].code);
+    try appendValidationIssuesFromHookResponseJson(alloc, body, "testhook", &issues);
+    try std.testing.expectEqual(@as(usize, 1), issues.items.len);
+    try std.testing.expectEqualStrings("hook.node.invalid", issues.items[0].code);
 }

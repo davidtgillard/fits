@@ -1,10 +1,9 @@
 const std = @import("std");
+const pkg = @import("build.zig.zon");
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
-    // Release artifacts must not assume SHA-NI/AVX2 (Zig std crypto.sha2); CI runners
-    // often have those features while WSL2 guests and older hosts do not.
     const default_target: std.Target.Query = if (optimize != .Debug)
         .{ .cpu_model = .baseline }
     else
@@ -12,58 +11,108 @@ pub fn build(b: *std.Build) void {
 
     const target = b.standardTargetOptions(.{ .default_target = default_target });
 
-    const git_commit = b.option([]const u8, "git_commit", "Embedded git commit (40 hex chars)") orelse "";
-    const github_owner = b.option([]const u8, "github_owner", "GitHub owner for self-update") orelse "davidtgillard";
-    const github_repo = b.option([]const u8, "github_repo", "GitHub repo for self-update") orelse "fits";
+    const enable_cli = b.option(bool, "cli", "Build legacy fits CLI executable") orelse false;
+
+    const api_version_packed: u32 = (@as(u32, pkg.abi_version_major) << 16) | pkg.abi_version_minor;
 
     const build_options = b.addOptions();
-    build_options.addOption([]const u8, "git_commit", git_commit);
-    build_options.addOption([]const u8, "github_owner", github_owner);
-    build_options.addOption([]const u8, "github_repo", github_repo);
-    build_options.addOption([]const u8, "fits_version", "0.1.0");
+    build_options.addOption([]const u8, "fits_version", pkg.version);
+    build_options.addOption(u32, "fits_api_version_packed", api_version_packed);
+    if (enable_cli) {
+        build_options.addOption([]const u8, "git_commit", b.option([]const u8, "git_commit", "Embedded git commit") orelse "");
+        build_options.addOption([]const u8, "github_owner", b.option([]const u8, "github_owner", "GitHub owner") orelse "davidtgillard");
+        build_options.addOption([]const u8, "github_repo", b.option([]const u8, "github_repo", "GitHub repo") orelse "fits");
+    }
 
-    const root_module = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    const lib_module = b.createModule(.{
+        .root_source_file = b.path("src/libfits.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
-    root_module.addImport("build_options", build_options.createModule());
+    lib_module.addImport("build_options", build_options.createModule());
 
-    const exe = b.addExecutable(.{
+    const lib_opts = b.addLibrary(.{
         .name = "fits",
-        .root_module = root_module,
+        .linkage = .static,
+        .root_module = lib_module,
     });
-    if (optimize == .Debug) {
-        b.installArtifact(exe);
-    } else {
-        // Drop DWARF (.debug_*) from the installed binary; keep .symtab for backtraces.
-        const strip_debug = b.addSystemCommand(&.{ "strip", "--strip-debug" });
-        const stripped = strip_debug.addPrefixedOutputFileArg("-o", exe.name);
-        strip_debug.addFileArg(exe.getEmittedBin());
-        b.getInstallStep().dependOn(&b.addInstallBinFile(stripped, exe.name).step);
-    }
+    const shared_opts = b.addLibrary(.{
+        .name = "fits",
+        .linkage = .dynamic,
+        .root_module = lib_module,
+    });
 
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    const fits_core_h = b.addConfigHeader(.{
+        .style = .{ .cmake = b.path("include/fits_core.h.in") },
+    }, .{
+        .FITS_API_VERSION_MAJOR = pkg.abi_version_major,
+        .FITS_API_VERSION_MINOR = pkg.abi_version_minor,
+    });
+    lib_opts.installHeader(fits_core_h.getOutputFile(), "fits_core.h");
+    lib_opts.installHeader(b.path("include/libfits.h"), "libfits.h");
 
-    const run_step = b.step("run", "Run fits CLI");
-    run_step.dependOn(&run_cmd.step);
+    const install_abi_schemas = b.addInstallDirectory(.{
+        .source_dir = b.path("schemas/abi"),
+        .install_dir = .prefix,
+        .install_subdir = "schemas/abi",
+    });
+    b.getInstallStep().dependOn(&install_abi_schemas.step);
+
+    b.installArtifact(lib_opts);
+    b.installArtifact(shared_opts);
 
     const unit_tests = b.addTest(.{
-        .root_module = root_module,
+        .root_module = lib_module,
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
-
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 
-    // Coverage uses kcov + LLVM (DWARF). Self-hosted backend yields empty kcov output.
+    const abi_module = b.createModule(.{
+        .root_source_file = b.path("tests/c_abi/abi_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    abi_module.addIncludePath(fits_core_h.getOutputDir());
+    abi_module.addIncludePath(b.path("include"));
+    abi_module.addImport("build_options", build_options.createModule());
+    abi_module.linkLibrary(lib_opts);
+
+    const abi_test_exe = b.addExecutable(.{
+        .name = "libfits_abi_test",
+        .root_module = abi_module,
+    });
+    const run_abi = b.addRunArtifact(abi_test_exe);
+    const abi_step = b.step("abi-test", "Run libfits C ABI tests");
+    abi_step.dependOn(&run_abi.step);
+
+    if (enable_cli) {
+        const cli_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        cli_module.addImport("build_options", build_options.createModule());
+        cli_module.addImport("libfits", lib_module);
+        cli_module.linkLibrary(lib_opts);
+
+        const exe = b.addExecutable(.{
+            .name = "fits",
+            .root_module = cli_module,
+        });
+        b.installArtifact(exe);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| run_cmd.addArgs(args);
+        const run_step = b.step("run", "Run fits CLI");
+        run_step.dependOn(&run_cmd.step);
+    }
+
     const kcov_cmd = b.graph.environ_map.get("KCOV") orelse "kcov";
     const cov_tests = b.addTest(.{
-        .root_module = root_module,
+        .root_module = lib_module,
     });
     cov_tests.use_llvm = true;
 
@@ -76,10 +125,8 @@ pub fn build(b: *std.Build) void {
     });
     run_kcov.addDirectoryArg(b.path("zig-out/coverage"));
     run_kcov.addArtifactArg(cov_tests);
-    // Do not use enableTestRunnerMode: it passes --listen=- for the build runner's
-    // test protocol, which breaks when KCOV is a Docker wrapper (child is docker, not test).
     run_kcov.setEnvironmentVariable("FITS_NO_UPDATE_CHECK", "1");
 
-    const coverage_step = b.step("coverage", "Run tests with kcov (line + branch coverage)");
+    const coverage_step = b.step("coverage", "Run tests with kcov");
     coverage_step.dependOn(&run_kcov.step);
 }

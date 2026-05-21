@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "libfits remove request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["object_id"],
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "object_id": { "type": "string" }
+  }
+}

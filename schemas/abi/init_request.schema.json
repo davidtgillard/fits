@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "libfits init request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "no_interactive": { "type": "boolean", "default": true },
+    "init_git": { "type": "boolean", "default": false },
+    "edit_gitignore": { "type": "boolean", "default": false }
+  }
+}

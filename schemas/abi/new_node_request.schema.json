@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "libfits new_node request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "id_prefix": { "type": "string" },
+    "markdown": { "type": "boolean", "default": false },
+    "title": { "type": "string" }
+  },
+  "required": ["id_prefix"]
+}

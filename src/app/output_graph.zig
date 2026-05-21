@@ -131,7 +131,8 @@ pub fn run(
     try std.Io.File.stdout().writeStreamingAll(io, line);
 }
 
-fn freeBundle(allocator: std.mem.Allocator, bundle: *graph_mod.NodeBundle) void {
+/// Frees bundle file paths and contents allocated during load.
+pub fn freeBundle(allocator: std.mem.Allocator, bundle: *graph_mod.NodeBundle) void {
     for (bundle.files) |f| {
         allocator.free(f.relative_path);
         allocator.free(f.contents);

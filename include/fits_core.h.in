@@ -1,0 +1,533 @@
+/**
+ * @file fits_core.h
+ * @brief Struct-based C ABI for libfits.
+ *
+ * libfits exposes two C-compatible layers. This header is the core layer: typed
+ * structs, status codes, and `FITS_CORE_*` functions. The JSON wire API lives in
+ * libfits.h (`FITS_validate`, `FITS_remove_obj`, and related symbols).
+ *
+ * Exported C symbols use a screaming prefix and lowercase snake_case tail:
+ * `FITS_CORE_repo_open`, `FITS_free`, and so on. Constants and macros use the
+ * `FITS_` prefix (`FITS_OK`, `FITS_ERR_*`). Types remain PascalCase (`FitsRepo`,
+ * `FitsStatus`).
+ *
+ * @par Memory
+ * Pointers returned across this boundary (for example `out_node_id`, strings inside
+ * `FitsValidateResult`, and JSON documents from libfits.h) are allocated with the C
+ * heap. Release them with FITS_free(). Destroy `FitsValidateResult` values with
+ * FITS_CORE_validate_result_destroy().
+ *
+ * @par Errors
+ * Core functions return FitsStatus (`FITS_OK` == 0; negative codes below). After a
+ * failure, FITS_last_error() may contain a short diagnostic valid until the next
+ * libfits call on the same thread.
+ *
+ * @par Struct versioning
+ * Every input options struct begins with struct_size set to `sizeof(ThatStruct)`.
+ * libfits rejects unknown sizes. Output structs returned by libfits populate
+ * struct_size for forward compatibility.
+ *
+ * @par Threading
+ * Use one FitsRepo handle per thread; do not share handles across threads without
+ * external locking.
+ *
+ * @see libfits.h
+ * @see docs/abi.md
+ */
+
+#ifndef FITS_CORE_H
+#define FITS_CORE_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** @defgroup fits_version Version and memory
+ *  Shared helpers used by both the core and JSON ABI layers.
+ *  @{
+ */
+
+/**
+ * @brief Major component of the C struct-layout ABI version.
+ *
+ * Generated at build time from `abi_version_major` in build.zig.zon.
+ */
+#define FITS_API_VERSION_MAJOR @FITS_API_VERSION_MAJOR@
+
+/**
+ * @brief Minor component of the C struct-layout ABI version.
+ *
+ * Generated at build time from `abi_version_minor` in build.zig.zon.
+ */
+#define FITS_API_VERSION_MINOR @FITS_API_VERSION_MINOR@
+
+/**
+ * @brief Packed C struct-layout ABI version: `(major << 16) | minor`.
+ *
+ * Compare against FITS_api_version() at load time.
+ */
+#define FITS_API_VERSION_PACKED ((FITS_API_VERSION_MAJOR << 16) | FITS_API_VERSION_MINOR)
+
+/**
+ * @brief Returns the packed C struct-layout ABI version.
+ *
+ * @return `(FITS_API_VERSION_MAJOR << 16) | FITS_API_VERSION_MINOR`.
+ *
+ * @see FITS_API_VERSION_PACKED
+ */
+uint32_t FITS_api_version(void);
+
+/**
+ * @brief Returns the libfits package version string.
+ *
+ * @return Null-terminated UTF-8 version from build.zig.zon. Valid for the lifetime
+ *         of the loaded library; do not free.
+ */
+const char *FITS_version_string(void);
+
+/**
+ * @brief Frees memory allocated by libfits across the C boundary.
+ *
+ * @param ptr Pointer previously returned by libfits, or NULL (no-op).
+ */
+void FITS_free(void *ptr);
+
+/**
+ * @brief Returns the last error message for the calling thread.
+ *
+ * @return Null-terminated UTF-8 diagnostic, or an empty string when none is set.
+ *         Valid until the next libfits call on the same thread; do not free.
+ */
+const char *FITS_last_error(void);
+
+/** @} */
+
+/** @defgroup fits_status Status codes
+ *  @{
+ */
+
+/**
+ * @brief libfits operation status code.
+ *
+ * Zero (`FITS_OK`) means success. Negative values are stable error codes defined
+ * below.
+ */
+typedef int32_t FitsStatus;
+
+/** @brief Operation succeeded. */
+#define FITS_OK 0
+
+/** @brief Invalid argument (NULL handle, bad struct_size, missing required field). */
+#define FITS_ERR_INVALID_ARGUMENT -1
+
+/** @brief Repository root or registry snapshot path not found. */
+#define FITS_ERR_REPO_NOT_FOUND -2
+
+/** @brief Registry load, parse, or validation error. */
+#define FITS_ERR_REGISTRY -3
+
+/** @brief links/links.jsonc is missing or invalid. */
+#define FITS_ERR_LINKS_INVALID -4
+
+/** @brief Live registry does not match the fixed snapshot configured at open time. */
+#define FITS_ERR_SNAPSHOT_MISMATCH -5
+
+/** @brief Unknown node id prefix or object id prefix. */
+#define FITS_ERR_UNKNOWN_ID_PREFIX -6
+
+/** @brief Repository scaffold already exists (fits init on initialized repo). */
+#define FITS_ERR_ALREADY_INITIALIZED -7
+
+/** @brief Heap allocation failed. */
+#define FITS_ERR_OUT_OF_MEMORY -8
+
+/** @brief Filesystem I/O error. */
+#define FITS_ERR_IO -9
+
+/** @brief Operation is not implemented. */
+#define FITS_ERR_NOT_IMPLEMENTED -10
+
+/** @brief Unexpected internal error. */
+#define FITS_ERR_INTERNAL -11
+
+/** @} */
+
+/** @defgroup fits_validation Validation results
+ *  Types populated by FITS_CORE_validate().
+ *  @{
+ */
+
+/**
+ * @brief Severity level for a validation issue.
+ */
+typedef int32_t FitsSeverity;
+
+/** @brief Informational validation issue; graph may still be valid. */
+#define FITS_SEVERITY_INFO 0
+
+/** @brief Warning validation issue; graph may still be usable. */
+#define FITS_SEVERITY_WARN 1
+
+/** @brief Error validation issue; graph integrity or policy violation. */
+#define FITS_SEVERITY_ERR 2
+
+/**
+ * @brief A single validation issue.
+ *
+ * String fields are allocated by libfits. Freed when the owning FitsValidateResult
+ * is destroyed with FITS_CORE_validate_result_destroy().
+ */
+typedef struct FitsValidationIssue {
+    /** Populated by libfits; equals `sizeof(FitsValidationIssue)`. */
+    uint32_t struct_size;
+
+    /** Issue severity (`FITS_SEVERITY_INFO`, `FITS_SEVERITY_WARN`, or `FITS_SEVERITY_ERR`). */
+    FitsSeverity severity;
+
+    /** Stable machine-readable issue code (UTF-8). */
+    const char *code;
+
+    /** Human-readable issue message (UTF-8). */
+    const char *message;
+
+    /** Related node or link id when applicable; otherwise NULL. */
+    const char *object_id;
+} FitsValidationIssue;
+
+/**
+ * @brief Aggregate counts for a validation report.
+ */
+typedef struct FitsValidateSummary {
+    /** Populated by libfits; equals `sizeof(FitsValidateSummary)`. */
+    uint32_t struct_size;
+
+    /** Total number of validation issues in the report. */
+    size_t total_validation_issues;
+
+    /** Count of issues with `FITS_SEVERITY_INFO`. */
+    size_t info_count;
+
+    /** Count of issues with `FITS_SEVERITY_WARN`. */
+    size_t warning_count;
+
+    /** Count of issues with `FITS_SEVERITY_ERR`. */
+    size_t error_count;
+} FitsValidateSummary;
+
+/**
+ * @brief Validation report returned by FITS_CORE_validate().
+ *
+ * Destroy with FITS_CORE_validate_result_destroy().
+ */
+typedef struct FitsValidateResult {
+    /** Populated by libfits; equals `sizeof(FitsValidateResult)`. */
+    uint32_t struct_size;
+
+    /** Array of validation issues; NULL when issues_len is zero. */
+    FitsValidationIssue *issues;
+
+    /** Number of elements in issues. */
+    size_t issues_len;
+
+    /** Aggregate counts for validation issues. */
+    FitsValidateSummary summary;
+} FitsValidateResult;
+
+/** @} */
+
+/** @defgroup fits_repo Repository session
+ *  Opaque repo handle and open/init options.
+ *  @{
+ */
+
+/**
+ * @brief Opaque handle for an open fits repository session.
+ *
+ * Created by FITS_CORE_repo_open() and released by FITS_CORE_repo_close().
+ */
+typedef struct FitsRepo FitsRepo;
+
+/**
+ * @brief Options for FITS_CORE_repo_open().
+ */
+typedef struct FitsRepoOpenOptions {
+    /** Must be set to `sizeof(FitsRepoOpenOptions)`. */
+    uint32_t struct_size;
+
+    /** Repository root directory path (UTF-8). NULL uses the current directory. */
+    const char *repo_root;
+
+    /**
+     * Optional path to a fixed registry snapshot file used to enforce schema at
+     * open time. NULL disables fixed-schema enforcement.
+     */
+    const char *registry_snapshot_path;
+} FitsRepoOpenOptions;
+
+/**
+ * @brief Options for FITS_CORE_validate().
+ */
+typedef struct FitsValidateOptions {
+    /** Must be set to `sizeof(FitsValidateOptions)`. */
+    uint32_t struct_size;
+
+    /**
+     * When non-zero, include link endpoint validation checks. When zero, skip
+     * link-endpoint checks. Pass NULL options to FITS_CORE_validate() to use
+     * the default (include link endpoints).
+     */
+    int32_t include_link_endpoints;
+} FitsValidateOptions;
+
+/**
+ * @brief Options for FITS_CORE_new_node().
+ */
+typedef struct FitsNewNodeOptions {
+    /** Must be set to `sizeof(FitsNewNodeOptions)`. */
+    uint32_t struct_size;
+
+    /** Registered node type id prefix (for example `"REQ"`). Required. */
+    const char *id_prefix;
+
+    /** When non-zero, create a Markdown node file; when zero, create a plain file. */
+    int32_t markdown;
+
+    /** Optional initial title text (UTF-8). NULL or empty string for no title. */
+    const char *title;
+} FitsNewNodeOptions;
+
+/**
+ * @brief Options for FITS_CORE_new_link().
+ */
+typedef struct FitsNewLinkOptions {
+    /** Must be set to `sizeof(FitsNewLinkOptions)`. */
+    uint32_t struct_size;
+
+    /** Registered link type name. Required. */
+    const char *link_type;
+
+    /** Tail (inbound) node id. Required. */
+    const char *in_id;
+
+    /** Head (outbound) node id. Required. */
+    const char *out_id;
+} FitsNewLinkOptions;
+
+/**
+ * @brief Options for FITS_CORE_registry_register_node_type().
+ */
+typedef struct FitsRegisterNodeTypeOptions {
+    /** Must be set to `sizeof(FitsRegisterNodeTypeOptions)`. */
+    uint32_t struct_size;
+
+    /** Node type name to register. Required. */
+    const char *type_name;
+
+    /** When non-zero, register an abstract type; when zero, register a concrete type. */
+    int32_t abstract;
+
+    /**
+     * Parent abstract type name for concrete types. Required when abstract is zero;
+     * must be NULL for abstract types.
+     */
+    const char *extends;
+
+    /**
+     * When non-zero, set the create-folder flag for the new type in repo config.
+     * Only applies to concrete types.
+     */
+    int32_t create_folder;
+} FitsRegisterNodeTypeOptions;
+
+/**
+ * @brief Options for FITS_CORE_registry_register_link_type().
+ */
+typedef struct FitsRegisterLinkTypeOptions {
+    /** Must be set to `sizeof(FitsRegisterLinkTypeOptions)`. */
+    uint32_t struct_size;
+
+    /** Link type name to register. Required. */
+    const char *link_type;
+
+    /** Allowed tail node type for this link. Required. */
+    const char *in_type;
+
+    /** Allowed head node type for this link. Required. */
+    const char *out_type;
+
+    /** When non-zero, set the create-folder flag for the new link type in repo config. */
+    int32_t create_folder;
+} FitsRegisterLinkTypeOptions;
+
+/**
+ * @brief Options for FITS_CORE_repo_init().
+ */
+typedef struct FitsRepoInitOptions {
+    /** Must be set to `sizeof(FitsRepoInitOptions)`. */
+    uint32_t struct_size;
+
+    /**
+     * When non-zero, disable interactive prompts during init (for example git and
+     * .gitignore questions).
+     */
+    int32_t no_interactive;
+
+    /**
+     * Git repository initialization intent. Zero leaves the choice to libfits
+     * defaults (may prompt when interactive). Non-zero requests `git init` when
+     * no git repo exists.
+     */
+    int32_t init_git;
+
+    /**
+     * .gitignore edit intent for the fits cache directory. Zero leaves the choice
+     * to libfits defaults (may prompt when interactive). Non-zero requests adding
+     * the cache entry.
+     */
+    int32_t edit_gitignore;
+} FitsRepoInitOptions;
+
+/** @} */
+
+/** @defgroup fits_core_api Core API functions
+ *  @{
+ */
+
+/**
+ * @brief Opens a repository session.
+ *
+ * @param options Open options. Must not be NULL. struct_size must equal
+ *        `sizeof(FitsRepoOpenOptions)`.
+ * @return New FitsRepo handle on success, or NULL on failure.
+ *
+ * @see FITS_CORE_repo_close
+ */
+FitsRepo *FITS_CORE_repo_open(const FitsRepoOpenOptions *options);
+
+/**
+ * @brief Closes a repository session and releases session resources.
+ *
+ * @param repo Handle from FITS_CORE_repo_open(), or NULL (no-op).
+ */
+void FITS_CORE_repo_close(FitsRepo *repo);
+
+/**
+ * @brief Initializes an empty directory as a fits repository.
+ *
+ * Creates `.fits/registry.json`, `links/links.jsonc`, cache layout, and related
+ * scaffolding under the repository root configured at open time.
+ *
+ * @param repo Open repository handle. Must not be NULL.
+ * @param options Init options. Must not be NULL. struct_size must equal
+ *        `sizeof(FitsRepoInitOptions)`.
+ * @return FITS_OK on success, or a negative FitsStatus on failure.
+ *
+ * @see FITS_init
+ */
+FitsStatus FITS_CORE_repo_init(FitsRepo *repo, const FitsRepoInitOptions *options);
+
+/**
+ * @brief Registers a node type in the repository registry.
+ *
+ * @param repo Open repository handle. Must not be NULL.
+ * @param options Registration options. Must not be NULL. struct_size must equal
+ *        `sizeof(FitsRegisterNodeTypeOptions)`.
+ * @return FITS_OK on success, or a negative FitsStatus on failure.
+ *
+ * @see FITS_register_node_type
+ */
+FitsStatus FITS_CORE_registry_register_node_type(FitsRepo *repo, const FitsRegisterNodeTypeOptions *options);
+
+/**
+ * @brief Registers a link type in the repository registry.
+ *
+ * @param repo Open repository handle. Must not be NULL.
+ * @param options Registration options. Must not be NULL. struct_size must equal
+ *        `sizeof(FitsRegisterLinkTypeOptions)`.
+ * @return FITS_OK on success, or a negative FitsStatus on failure.
+ *
+ * @see FITS_register_link_type
+ */
+FitsStatus FITS_CORE_registry_register_link_type(FitsRepo *repo, const FitsRegisterLinkTypeOptions *options);
+
+/**
+ * @brief Verifies the live registry against the fixed snapshot path (if configured).
+ *
+ * @param repo Open repository handle. Must not be NULL.
+ * @return FITS_OK when the snapshot matches or no snapshot was configured; otherwise
+ *         a negative FitsStatus (typically FITS_ERR_SNAPSHOT_MISMATCH).
+ */
+FitsStatus FITS_CORE_registry_verify_snapshot(FitsRepo *repo);
+
+/**
+ * @brief Creates a new node in the repository.
+ *
+ * @param repo Open repository handle. Must not be NULL.
+ * @param options Node creation options. Must not be NULL. struct_size must equal
+ *        `sizeof(FitsNewNodeOptions)`.
+ * @param out_node_id Out pointer for the allocated node id string. Must not be NULL.
+ *        Caller frees with FITS_free().
+ * @return FITS_OK on success, or a negative FitsStatus on failure.
+ *
+ * @see FITS_new_node
+ */
+FitsStatus FITS_CORE_new_node(FitsRepo *repo, const FitsNewNodeOptions *options, char **out_node_id);
+
+/**
+ * @brief Creates a new link between two nodes.
+ *
+ * @param repo Open repository handle. Must not be NULL.
+ * @param options Link creation options. Must not be NULL. struct_size must equal
+ *        `sizeof(FitsNewLinkOptions)`.
+ * @return FITS_OK on success, or a negative FitsStatus on failure.
+ *
+ * @see FITS_new_link
+ */
+FitsStatus FITS_CORE_new_link(FitsRepo *repo, const FitsNewLinkOptions *options);
+
+/**
+ * @brief Removes a node or link from the repository.
+ *
+ * @param repo Open repository handle. Must not be NULL.
+ * @param object_id Id of the node or link to remove (UTF-8). Must not be NULL.
+ * @return FITS_OK on success, or a negative FitsStatus on failure.
+ *
+ * @see FITS_remove_obj
+ */
+FitsStatus FITS_CORE_remove_obj(FitsRepo *repo, const char *object_id);
+
+/**
+ * @brief Validates the repository graph and returns structured validation issues.
+ *
+ * A successful return (`FITS_OK`) means validation completed; individual validation issues
+ * may still report errors in the graph.
+ *
+ * @param repo Open repository handle. Must not be NULL.
+ * @param options Validation options, or NULL to use defaults (include link
+ *        endpoints). When non-NULL, struct_size must equal `sizeof(FitsValidateOptions)`.
+ * @param out_result Out pointer for an allocated FitsValidateResult. Must not be NULL.
+ *        Destroy with FITS_CORE_validate_result_destroy().
+ * @return FITS_OK on success, or a negative FitsStatus on failure.
+ *
+ * @see FITS_validate
+ * @see FITS_CORE_validate_result_destroy
+ */
+FitsStatus FITS_CORE_validate(FitsRepo *repo, const FitsValidateOptions *options, FitsValidateResult **out_result);
+
+/**
+ * @brief Destroys a FitsValidateResult and all nested allocated strings.
+ *
+ * @param result Result from FITS_CORE_validate(), or NULL (no-op).
+ */
+void FITS_CORE_validate_result_destroy(FitsValidateResult *result);
+
+/** @} */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* FITS_CORE_H */

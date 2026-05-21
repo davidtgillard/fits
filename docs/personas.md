@@ -1,4 +1,6 @@
-# Personas
+# Personas (legacy)
+
+> **Note:** Persona host support (`fits` symlink, `persona.toml` dispatch) is being removed from **libfits**. Personas will be implemented in the separate **fits-python** repository using `libfits.h`. This document is retained for reference until that migration is complete.
 
 A **persona** is a named product built on top of the same `fits` binary. Users run `foo` (a symlink to `fits`); the host loads a **persona package** from disk at runtime. The `fits` source tree never compiles in knowledge of any specific persona.
 

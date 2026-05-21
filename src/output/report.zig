@@ -3,22 +3,22 @@
 const std = @import("std");
 const validation = @import("../domain/validation.zig");
 
-/// Counts of findings by severity for dashboards and exit-code policy.
+/// Counts of validation issues by severity for dashboards and exit-code policy.
 pub const Summary = struct {
-    /// Total number of findings.
-    total_findings: usize,
-    /// Count with severity [`FindingSeverity.info`](validation.FindingSeverity).
+    /// Total number of validation issues.
+    total_validation_issues: usize,
+    /// Count with severity [`ValidationIssueSeverity.info`](validation.ValidationIssueSeverity).
     info_count: usize,
-    /// Count with severity [`FindingSeverity.warn`](validation.FindingSeverity).
+    /// Count with severity [`ValidationIssueSeverity.warn`](validation.ValidationIssueSeverity).
     warning_count: usize,
-    /// Count with severity [`FindingSeverity.err`](validation.FindingSeverity).
+    /// Count with severity [`ValidationIssueSeverity.err`](validation.ValidationIssueSeverity).
     error_count: usize,
 };
 
-/// Normalized report: raw findings plus precomputed summary.
+/// Normalized report: raw validation issues plus precomputed summary.
 pub const Report = struct {
-    /// All findings from all validators in run order (concatenated).
-    findings: []const validation.Finding,
+    /// All validation issues from all validators in run order (concatenated).
+    issues: []const validation.ValidationIssue,
     /// Aggregated counts by severity.
     summary: Summary,
 };
@@ -77,28 +77,28 @@ pub const TextRenderer = struct {
         _ = self;
 
         std.debug.print(
-            "findings={d} info={d} warning={d} error={d}\n",
-            .{ rep.summary.total_findings, rep.summary.info_count, rep.summary.warning_count, rep.summary.error_count },
+            "validation_issues={d} info={d} warning={d} error={d}\n",
+            .{ rep.summary.total_validation_issues, rep.summary.info_count, rep.summary.warning_count, rep.summary.error_count },
         );
     }
 };
 
-/// Computes severity counts from a flat finding list.
+/// Computes severity counts from a flat validation issue list.
 ///
 /// Parameters:
-/// - `findings`: Findings to aggregate (order does not matter).
+/// - `issues`: Validation issues to aggregate (order does not matter).
 ///
-/// Returns: a [`Summary`] with `total_findings == findings.len` and per-severity counts.
-pub fn summarize(findings: []const validation.Finding) Summary {
+/// Returns: a [`Summary`] with `total_validation_issues == issues.len` and per-severity counts.
+pub fn summarize(issues: []const validation.ValidationIssue) Summary {
     var summary = Summary{
-        .total_findings = findings.len,
+        .total_validation_issues = issues.len,
         .info_count = 0,
         .warning_count = 0,
         .error_count = 0,
     };
 
-    for (findings) |finding| {
-        switch (finding.severity) {
+    for (issues) |issue| {
+        switch (issue.severity) {
             .info => summary.info_count += 1,
             .warn => summary.warning_count += 1,
             .err => summary.error_count += 1,

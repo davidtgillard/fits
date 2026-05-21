@@ -39,14 +39,15 @@ pub const NewOptions = struct {
 ///
 /// Returns: nothing on success.
 /// On failure: [`fits_registry.validateObjPrefix`] errors, [`error.UnknownObjPrefix`], title validation, registry I/O, or filesystem errors.
-pub fn run(
+/// Creates a node and returns the display id (e.g. `REQ-3` or `REQ-3 Title`).
+pub fn runReturningId(
     allocator: std.mem.Allocator,
     io: std.Io,
     repo_root: []const u8,
     objects_rel: []const u8,
     obj_prefix: []const u8,
     options: NewOptions,
-) !void {
+) ![]const u8 {
     _ = objects_rel;
     try fits_registry.validateTypeName(obj_prefix);
     for (options.title_words) |w| {
@@ -72,7 +73,6 @@ pub fn run(
     try reg.save(io, repo_root);
 
     const display_name = try formatDisplayName(allocator, obj_prefix, n, options.title_words);
-    defer allocator.free(display_name);
 
     const instance_parent_rel = try path_layout.nodeInstanceParent(allocator, &reg, obj_prefix);
     defer allocator.free(instance_parent_rel);
@@ -89,18 +89,52 @@ pub fn run(
         defer allocator.free(file_path);
         const f = try cwd.createFile(io, file_path, .{ .read = false, .truncate = true, .exclusive = true });
         defer f.close(io);
-
-        const line = try std.fs.path.join(allocator, &.{ instance_parent_rel, file_name });
-        defer allocator.free(line);
-        if (!builtin.is_test) std.debug.print("Created {s}\n", .{line});
     } else {
         const dir_path = try std.fs.path.join(allocator, &.{ instance_parent_abs, display_name });
         defer allocator.free(dir_path);
         try cwd.createDirPath(io, dir_path);
+    }
 
+    return display_name;
+}
+
+pub fn run(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    repo_root: []const u8,
+    objects_rel: []const u8,
+    obj_prefix: []const u8,
+    options: NewOptions,
+) !void {
+    const display_name = try runReturningId(allocator, io, repo_root, objects_rel, obj_prefix, options);
+    defer allocator.free(display_name);
+
+    if (builtin.is_test) return;
+
+    var reg = try fits_registry.loadRegistry(allocator, io, repo_root);
+    defer reg.deinit();
+    const instance_parent_rel = try path_layout.nodeInstanceParent(allocator, &reg, obj_prefix);
+    defer allocator.free(instance_parent_rel);
+
+    var prefs = try fits_config.loadParsedConfigForRepo(allocator, io, repo_root);
+    defer prefs.deinit();
+    var use_markdown = options.markdown;
+    if (!options.markdown) {
+        if (prefs.objCreateFolder(obj_prefix)) |cf| {
+            if (!cf) use_markdown = true;
+        }
+    }
+
+    if (use_markdown) {
+        const file_name = try std.mem.concat(allocator, u8, &.{ display_name, ".md" });
+        defer allocator.free(file_name);
+        const line = try std.fs.path.join(allocator, &.{ instance_parent_rel, file_name });
+        defer allocator.free(line);
+        std.debug.print("Created {s}\n", .{line});
+    } else {
         const line = try std.fs.path.join(allocator, &.{ instance_parent_rel, display_name });
         defer allocator.free(line);
-        if (!builtin.is_test) std.debug.print("Created {s}/\n", .{line});
+        std.debug.print("Created {s}/\n", .{line});
     }
 }
 

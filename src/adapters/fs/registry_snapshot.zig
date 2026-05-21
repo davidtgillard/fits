@@ -67,69 +67,7 @@ pub fn loadTypeSchema(
 ) !TypeSchema {
     const path = try std.fs.path.join(allocator, &.{ package_root, snapshot_rel });
     defer allocator.free(path);
-
-    var file = openFile(io, path) catch |err| switch (err) {
-        error.FileNotFound => return error.PersonaSnapshotNotFound,
-        else => |e| return e,
-    };
-    defer file.close(io);
-
-    const st = try file.stat(io);
-    const n = std.math.cast(usize, st.size) orelse return error.FileTooBig;
-    if (n > 16 * 1024 * 1024) return error.FileTooBig;
-    const contents = try allocator.alloc(u8, n);
-    defer allocator.free(contents);
-    const got = try file.readPositionalAll(io, contents, 0);
-    if (got != n) return error.UnexpectedEndOfFile;
-
-    var validation_report = try registry_validate.validateRegistryDocument(allocator, contents);
-    defer validation_report.deinit();
-    if (!validation_report.isEmpty()) return error.PersonaSnapshotInvalid;
-
-    var parsed = try std.json.parseFromSlice(SnapshotJson, allocator, contents, .{
-        .ignore_unknown_fields = true,
-    });
-    defer parsed.deinit();
-
-    var node_types: std.ArrayListUnmanaged(TypeSchema.NodeTypeEntry) = .empty;
-    errdefer {
-        for (node_types.items) |*nt| {
-            allocator.free(nt.type);
-            if (nt.id_prefix) |p| allocator.free(p);
-            if (nt.extends) |e| allocator.free(e);
-        }
-        node_types.deinit(allocator);
-    }
-    for (parsed.value.node_types) |nj| {
-        try node_types.append(allocator, .{
-            .type = try allocator.dupe(u8, nj.type),
-            .abstract = nj.abstract,
-            .id_prefix = if (nj.id_prefix) |p| try allocator.dupe(u8, p) else null,
-            .extends = if (nj.extends) |e| try allocator.dupe(u8, e) else null,
-        });
-    }
-
-    var links: std.ArrayListUnmanaged(TypeSchema.LinkTypeEntry) = .empty;
-    errdefer {
-        for (links.items) |*lt| {
-            allocator.free(lt.link_type);
-            allocator.free(lt.in_type);
-            allocator.free(lt.out_type);
-        }
-        links.deinit(allocator);
-    }
-    for (parsed.value.link_types) |lj| {
-        try links.append(allocator, .{
-            .link_type = try allocator.dupe(u8, lj.link_type),
-            .in_type = try allocator.dupe(u8, lj.in_type),
-            .out_type = try allocator.dupe(u8, lj.out_type),
-        });
-    }
-
-    return .{
-        .node_types = try node_types.toOwnedSlice(allocator),
-        .link_types = try links.toOwnedSlice(allocator),
-    };
+    return loadTypeSchemaFromPath(allocator, io, path);
 }
 
 fn nodeTypeMatches(live: fits_registry.Registry.NodeTypeEntry, snap: TypeSchema.NodeTypeEntry) bool {
@@ -198,6 +136,102 @@ pub fn verifyRegistryForPersona(
     var schema = try loadTypeSchema(allocator, io, package_root, snapshot_rel);
     defer schema.deinit(allocator);
     try verifyRegistryMatchesSchema(reg, &schema);
+}
+
+/// Compares `reg` to the type schema at `snapshot_path` (absolute or cwd-relative file).
+pub fn verifyRegistryAtSnapshot(
+    allocator: std.mem.Allocator,
+    io: Io,
+    snapshot_path: []const u8,
+    reg: *const fits_registry.Registry,
+) !void {
+    var schema = try loadTypeSchemaFromPath(allocator, io, snapshot_path);
+    defer schema.deinit(allocator);
+    try verifyRegistryMatchesSchema(reg, &schema);
+}
+
+/// Loads type schema from a snapshot file path (not package root + relative).
+pub fn loadTypeSchemaFromPath(
+    allocator: std.mem.Allocator,
+    io: Io,
+    snapshot_path: []const u8,
+) !TypeSchema {
+    var file = openFile(io, snapshot_path) catch |err| switch (err) {
+        error.FileNotFound => return error.PersonaSnapshotNotFound,
+        else => |e| return e,
+    };
+    defer file.close(io);
+
+    const st = try file.stat(io);
+    const n = std.math.cast(usize, st.size) orelse return error.FileTooBig;
+    if (n > 16 * 1024 * 1024) return error.FileTooBig;
+    const contents = try allocator.alloc(u8, n);
+    defer allocator.free(contents);
+    const got = try file.readPositionalAll(io, contents, 0);
+    if (got != n) return error.UnexpectedEndOfFile;
+
+    var validation_report = try registry_validate.validateRegistryDocument(allocator, contents);
+    defer validation_report.deinit();
+    if (!validation_report.isEmpty()) return error.PersonaSnapshotInvalid;
+
+    var parsed = try std.json.parseFromSlice(SnapshotJson, allocator, contents, .{
+        .ignore_unknown_fields = true,
+    });
+    defer parsed.deinit();
+
+    return try typeSchemaFromParsed(allocator, parsed.value);
+}
+
+fn typeSchemaFromParsed(allocator: std.mem.Allocator, root: SnapshotJson) !TypeSchema {
+    var node_types: std.ArrayListUnmanaged(TypeSchema.NodeTypeEntry) = .empty;
+    errdefer {
+        for (node_types.items) |*nt| {
+            allocator.free(nt.type);
+            if (nt.id_prefix) |p| allocator.free(p);
+            if (nt.extends) |e| allocator.free(e);
+        }
+        node_types.deinit(allocator);
+    }
+    for (root.node_types) |jn| {
+        try node_types.append(allocator, .{
+            .type = try allocator.dupe(u8, jn.type),
+            .abstract = jn.abstract,
+            .id_prefix = if (jn.id_prefix) |p| try allocator.dupe(u8, p) else null,
+            .extends = if (jn.extends) |e| try allocator.dupe(u8, e) else null,
+        });
+    }
+    var links: std.ArrayListUnmanaged(TypeSchema.LinkTypeEntry) = .empty;
+    errdefer {
+        for (links.items) |*lt| {
+            allocator.free(lt.link_type);
+            allocator.free(lt.in_type);
+            allocator.free(lt.out_type);
+        }
+        links.deinit(allocator);
+    }
+    for (root.link_types) |jl| {
+        try links.append(allocator, .{
+            .link_type = try allocator.dupe(u8, jl.link_type),
+            .in_type = try allocator.dupe(u8, jl.in_type),
+            .out_type = try allocator.dupe(u8, jl.out_type),
+        });
+    }
+    return .{
+        .node_types = try node_types.toOwnedSlice(allocator),
+        .link_types = try links.toOwnedSlice(allocator),
+    };
+}
+
+/// Returns true when `id_prefix` appears in the snapshot file.
+pub fn snapshotHasIdPrefix(
+    allocator: std.mem.Allocator,
+    io: Io,
+    snapshot_path: []const u8,
+    id_prefix: []const u8,
+) !bool {
+    var schema = try loadTypeSchemaFromPath(allocator, io, snapshot_path);
+    defer schema.deinit(allocator);
+    return schemaHasIdPrefix(&schema, id_prefix);
 }
 
 /// Returns true when `id_prefix` is a concrete type id prefix declared in the snapshot.

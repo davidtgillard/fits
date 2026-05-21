@@ -15,7 +15,7 @@ const fits_cache = @import("../adapters/cache/fits_cache.zig");
 
 const Io = std.Io;
 
-/// Runs graph-node and/or link hooks and returns owned findings (empty when disabled).
+/// Runs graph-node and/or link hooks and returns owned validation issues (empty when disabled).
 ///
 /// When `dry_run` is true, successful hook runs do not persist fingerprint entries to the cache.
 /// When `hooks_full_graph` is true, every node and link is eligible for hook payloads (no git or fingerprint narrowing).
@@ -33,8 +33,8 @@ pub fn runHooks(
     dry_run: bool,
     run_id: []const u8,
     git_head: ?[]const u8,
-) ![]validation.Finding {
-    var out: std.ArrayListUnmanaged(validation.Finding) = .empty;
+) ![]validation.ValidationIssue {
+    var out: std.ArrayListUnmanaged(validation.ValidationIssue) = .empty;
     defer {
         for (out.items) |f| allocator.free(f.message);
         out.deinit(allocator);
@@ -64,7 +64,7 @@ pub fn runHooks(
             if (body.len > cfg.max_request_bytes) {
                 const msg = try std.fmt.allocPrint(allocator, "nodes hook request too large ({d} > {d})", .{ body.len, cfg.max_request_bytes });
                 defer allocator.free(msg);
-                const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "nodes", msg);
+                const batch = try hook_protocol.validationIssuesFromHookIoFailure(allocator, "nodes", msg);
                 defer {
                     for (batch) |f| allocator.free(f.message);
                     allocator.free(batch);
@@ -82,19 +82,19 @@ pub fn runHooks(
                             if (code != 0) {
                                 const msg = try std.fmt.allocPrint(allocator, "exit {d}: {s}", .{ code, rh.stderr });
                                 defer allocator.free(msg);
-                                const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "nodes", msg);
+                                const batch = try hook_protocol.validationIssuesFromHookIoFailure(allocator, "nodes", msg);
                                 defer {
                                     for (batch) |f| allocator.free(f.message);
                                     allocator.free(batch);
                                 }
                                 try out.appendSlice(allocator, batch);
                             } else {
-                                try hook_protocol.appendFindingsFromHookResponseJson(allocator, rh.stdout, "nodes", &out);
+                                try hook_protocol.appendValidationIssuesFromHookResponseJson(allocator, rh.stdout, "nodes", &out);
                                 if (!dry_run) try persistNodeFingerprints(allocator, cache, cfg.nodes_argv, work_objs);
                             }
                         },
                         else => {
-                            const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "nodes", "abnormal termination");
+                            const batch = try hook_protocol.validationIssuesFromHookIoFailure(allocator, "nodes", "abnormal termination");
                             defer {
                                 for (batch) |f| allocator.free(f.message);
                                 allocator.free(batch);
@@ -105,7 +105,7 @@ pub fn runHooks(
                 } else |err| {
                     const msg = try std.fmt.allocPrint(allocator, "nodes hook: {any}", .{err});
                     defer allocator.free(msg);
-                    const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "nodes", msg);
+                    const batch = try hook_protocol.validationIssuesFromHookIoFailure(allocator, "nodes", msg);
                     defer {
                         for (batch) |f| allocator.free(f.message);
                         allocator.free(batch);
@@ -130,7 +130,7 @@ pub fn runHooks(
             if (body.len > cfg.max_request_bytes) {
                 const msg = try std.fmt.allocPrint(allocator, "links hook request too large ({d} > {d})", .{ body.len, cfg.max_request_bytes });
                 defer allocator.free(msg);
-                const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "links", msg);
+                const batch = try hook_protocol.validationIssuesFromHookIoFailure(allocator, "links", msg);
                 defer {
                     for (batch) |f| allocator.free(f.message);
                     allocator.free(batch);
@@ -148,19 +148,19 @@ pub fn runHooks(
                             if (code != 0) {
                                 const msg = try std.fmt.allocPrint(allocator, "exit {d}: {s}", .{ code, rh.stderr });
                                 defer allocator.free(msg);
-                                const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "links", msg);
+                                const batch = try hook_protocol.validationIssuesFromHookIoFailure(allocator, "links", msg);
                                 defer {
                                     for (batch) |f| allocator.free(f.message);
                                     allocator.free(batch);
                                 }
                                 try out.appendSlice(allocator, batch);
                             } else {
-                                try hook_protocol.appendFindingsFromHookResponseJson(allocator, rh.stdout, "links", &out);
+                                try hook_protocol.appendValidationIssuesFromHookResponseJson(allocator, rh.stdout, "links", &out);
                                 if (!dry_run) try persistLinkFingerprints(allocator, cache, cfg.links_argv, work_rows);
                             }
                         },
                         else => {
-                            const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "links", "abnormal termination");
+                            const batch = try hook_protocol.validationIssuesFromHookIoFailure(allocator, "links", "abnormal termination");
                             defer {
                                 for (batch) |f| allocator.free(f.message);
                                 allocator.free(batch);
@@ -171,7 +171,7 @@ pub fn runHooks(
                 } else |err| {
                     const msg = try std.fmt.allocPrint(allocator, "links hook: {any}", .{err});
                     defer allocator.free(msg);
-                    const batch = try hook_protocol.findingsFromHookIoFailure(allocator, "links", msg);
+                    const batch = try hook_protocol.validationIssuesFromHookIoFailure(allocator, "links", msg);
                     defer {
                         for (batch) |f| allocator.free(f.message);
                         allocator.free(batch);

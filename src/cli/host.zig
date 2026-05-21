@@ -347,7 +347,7 @@ fn runValidate(
     const git_head_opt = tryGitHead(allocator, io, ".");
     defer if (git_head_opt) |h| allocator.free(h);
 
-    const hook_findings = try hooks_validate_mod.runHooks(
+    const hook_issues = try hooks_validate_mod.runHooks(
         allocator,
         io,
         ".",
@@ -363,14 +363,14 @@ fn runValidate(
         git_head_opt,
     );
 
-    const merged = try allocator.alloc(validation.Finding, report.findings.len + hook_findings.len);
-    @memcpy(merged[0..report.findings.len], report.findings);
-    @memcpy(merged[report.findings.len..], hook_findings);
-    allocator.free(report.findings);
-    allocator.free(hook_findings);
+    const merged = try allocator.alloc(validation.ValidationIssue, report.issues.len + hook_issues.len);
+    @memcpy(merged[0..report.issues.len], report.issues);
+    @memcpy(merged[report.issues.len..], hook_issues);
+    allocator.free(report.issues);
+    allocator.free(hook_issues);
 
     const final_report = report_mod.Report{
-        .findings = merged,
+        .issues = merged,
         .summary = report_mod.summarize(merged),
     };
     defer {
@@ -870,10 +870,10 @@ const BuiltInValidator = struct {
         const self: *BuiltInValidator = @ptrCast(@alignCast(context));
         _ = self;
         _ = input;
-        const findings = try allocator.alloc(validation.Finding, 0);
+        const issues = try allocator.alloc(validation.ValidationIssue, 0);
         return .{
             .validator_name = "builtin.placeholder",
-            .findings = findings,
+            .issues = issues,
         };
     }
 };

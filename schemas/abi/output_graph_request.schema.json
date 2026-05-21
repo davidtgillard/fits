@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "libfits output_graph request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "pretty_print": { "type": "boolean", "default": false }
+  }
+}
