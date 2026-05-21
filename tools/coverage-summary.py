@@ -11,6 +11,11 @@ from pathlib import Path
 
 
 def load_coverage_json(path: Path) -> dict | None:
+    """Load and parse a kcov ``coverage.json`` file.
+
+    Returns:
+        Parsed JSON object, or ``None`` if the file is missing or invalid.
+    """
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -33,7 +38,11 @@ def line_totals(coverage_root: Path) -> tuple[int, int, float]:
 
 
 def parse_line_js(path: Path) -> tuple[int, int]:
-    """Parse kcov per-file JS (var data = {lines:[...]}) for branch hits."""
+    """Parse kcov per-file JS (var data = {lines:[...]}) for branch hits.
+
+    Returns:
+        Tuple of covered branch hits and total possible branch hits.
+    """
     text = path.read_text(encoding="utf-8", errors="replace")
     branch_line = re.compile(
         r'"hits"\s*:\s*"(\d+)"[^}]*"possible_hits"\s*:\s*"(\d+)"',
@@ -49,6 +58,7 @@ def parse_line_js(path: Path) -> tuple[int, int]:
 
 
 def branch_totals(coverage_root: Path) -> tuple[int, int, float]:
+    """Return (covered_branches, total_branches, percent) from kcov JS files."""
     covered = 0
     total = 0
     for path in coverage_root.rglob("*.js"):
@@ -65,6 +75,11 @@ def branch_totals(coverage_root: Path) -> tuple[int, int, float]:
 
 
 def main() -> int:
+    """Summarize kcov coverage and write markdown to ``GITHUB_STEP_SUMMARY``.
+
+    Returns:
+        Exit code (0 on success, 1 if directory missing, 2 on usage error).
+    """
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} <coverage-dir>", file=sys.stderr)
         return 2
